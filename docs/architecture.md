@@ -105,9 +105,12 @@ Runs *before* ranking. Three checks in order:
 ```
 
 - **`proto/trilith.proto`** is the single source of truth for types and operations. Any language with `protoc` support can compile native bindings.
-- **REST gateway** (`/v1/write`, `/v1/assemble`, `/v1/forget`) accepts standard JSON — usable with `curl`, `fetch`, `requests`, or any HTTP client.
-- **MCP adapter** (`adapters/mcp/server.py`) exposes the same operations as Model Context Protocol tools, compatible with Claude Desktop, Cursor, and any other MCP host.
-- **SDK stubs** in `sdks/python`, `sdks/typescript`, `sdks/go` wrap the HTTP/gRPC client boilerplate into idiomatic native APIs.
+- **REST gateway** (`/v1/write`, `/v1/assemble`, `/v1/forget`) on port **8080** — usable with `curl`, `fetch`, or any HTTP client.
+- **gRPC** (`trilith.ContextManager`) on port **50051** — same Write / Query / Assemble / Forget ops; started by `trilith serve` alongside REST.
+- **MCP adapter** (`adapters/mcp/server.py`) exposes the same operations as Model Context Protocol tools.
+- **SDK stubs** in `sdks/python`, `sdks/typescript`, `sdks/go` are placeholders (not published clients yet).
+
+> **Alpha note:** REST/gRPC have no authentication. Suitable for local/dev; put a gateway in front for shared networks.
 
 ---
 
@@ -122,12 +125,18 @@ trilith/
 │   │   ├── trilith_pb2.py
 │   │   └── trilith_pb2_grpc.py
 │   ├── sqlite_backend.py   # Pluggable storage backend
+│   ├── threadsafe_backend.py
+│   ├── runtime.py          # Shared Governor + stores wiring
+│   ├── ops.py              # Shared write/query/forget
+│   ├── rest_app.py         # FastAPI REST gateway (:8080)
+│   ├── grpc_servicer.py    # ContextManager gRPC servicer
+│   ├── grpc_server.py      # gRPC server bootstrap (:50051)
 │   ├── semantic.py         # Semantic tier
 │   ├── procedural.py       # Procedural tier + fold()
 │   ├── episodic.py         # Episodic tier + forget() cascade
 │   ├── governor.py         # Ranking, distraction penalty, assemble
 │   ├── privacy.py          # PolicyEngine (scope, PII, expiry)
-│   └── cli.py              # `trilith serve` entrypoint
+│   └── cli.py              # `trilith serve` entrypoint (REST + gRPC)
 ├── adapters/
 │   └── mcp/                # MCP server adapter
 │       └── server.py

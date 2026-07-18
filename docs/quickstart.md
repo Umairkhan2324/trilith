@@ -18,17 +18,23 @@ python scripts/compile_proto.py
 ## 2. Start the Server
 
 ```bash
-trilith serve --host 127.0.0.1 --port 8080
+trilith serve --host 127.0.0.1 --port 8080 --grpc-port 50051
 ```
 
-Alternatively, with Docker (zero config, SQLite storage at `/data/trilith.db`):
+Alternatively, with Docker (SQLite at `/data/trilith.db`):
 
 ```bash
 docker build -t trilith .
-docker run -p 8080:8080 -v trilith_data:/data trilith
+docker run -p 8080:8080 -p 50051:50051 -v trilith_data:/data trilith
 ```
 
-The server exposes three endpoints:
+| Surface | Address | Purpose |
+|---------|---------|---------|
+| REST | `http://127.0.0.1:8080` | JSON write / assemble / forget |
+| gRPC | `127.0.0.1:50051` | `trilith.ContextManager` (same ops) |
+| Health | `GET /healthz` | Liveness |
+
+REST endpoints:
 
 | Method | Path | Purpose |
 |--------|------|---------|

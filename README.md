@@ -1,63 +1,72 @@
 # Trilith
 
-Trilith is an open-source, language-agnostic context management layer designed specifically to govern, structure, and serve working memory for AI systems. By splitting agent context into three structured tiers (Semantic, Procedural, and Episodic), governing it with a pluggable relevancy and distraction-prevention engine, and enforcing strict privacy and scope rules at the data layer, Trilith gives developers a production-grade external memory system. Whether running as a local Model Context Protocol (MCP) server, as a native Python library, or as a centralized service exposed via gRPC and REST/JSON, Trilith enables agents in any language or technology framework to retrieve, write, and audit context reliably under token constraints.
+**Alpha (v0.1)** — open-source context management for AI agents: three memory tiers, budgeted assembly, privacy filtering, and auditable exclusions. No LLM or API key required to run.
 
-## System Architecture
+Trilith sits **between your agent and the LLM prompt**. You write facts/events into stores; before each model call you `assemble` under a token budget and inject only the selected items.
 
-```text
-                  +----------------------------------------------+
-                  |              Client Application              |
-                  |     (Python / TypeScript / Go / Custom)      |
-                  +-----------------------+----------------------+
-                                          |
-                        gRPC / REST / Stdio (MCP)
-                                          |
-                                          v
-                  +----------------------------------------------+
-                  |            Trilith Server Gateway            |
-                  |                (trilith serve)               |
-                  +-----------------------+----------------------+
-                                          |
-                                          v
-                  +----------------------------------------------+
-                  |                  Governor                    |
-                  |    - Assemble contexts (budgeted tokens)     |
-                  |    - Pluggable Scorer (TF-IDF/Embeddings)    |
-                  |    - Distraction Penalty Filter              |
-                  +-----------------------+----------------------+
-                                          |
-                                          v
-                  +----------------------------------------------+
-                  |               Privacy Engine                 |
-                  |   - Scope Checking                           |
-                  |   - PII Regex Redacting                      |
-                  |   - Timestamps & Expiry Filter               |
-                  +-----------------------+----------------------+
-                                          |
-            +-----------------------------+-----------------------------+
-            |                             |                             |
-            v                             v                             v
-+-------------------------+   +-------------------------+   +-------------------------+
-|      Semantic Store     |   |    Procedural Store     |   |     Episodic Store      |
-| (SQLite/Vector DB back) |   | (Task steps & step fold)|   | (Tenant scopes & purge) |
-+-------------------------+   +-------------------------+   +-------------------------+
-```
+## Expect / don’t expect
 
-## Quick Start (Installation Placeholder)
+**Expect**
+- Local SQLite + TF-IDF ranking (zero external AI dependency)
+- REST (`:8080`) + gRPC (`:50051`) + MCP adapter
+- Auditable `excluded_items` with reasons
+- Physical `forget(scope)` across tiers
+
+**Don’t expect (yet)**
+- Production multi-tenant IAM / real tenant IDs (scopes are coarse enums)
+- Vector DB backends, LangChain / OpenAI Agents adapters (stubs)
+- Auth on REST/gRPC (local-first; put a gateway in front for shared deploys)
+- Published PyPI package until you publish `trilith-core` (install from git for now)
+
+## Install
 
 ```bash
-# Install trilith-core package
-pip install trilith-core
-
-# Start the gRPC and HTTP context services locally
-trilith serve --host 127.0.0.1 --port 50051
-
-# Or run via Docker
-docker run -p 50051:50051 -p 8080:8080 trilith:latest
+git clone https://github.com/Umairkhan2324/trilith.git
+cd trilith
+pip install -e ".[server]"
 ```
 
-For more documentation, see the [docs/](docs/) directory.
+Optional MCP extras: `pip install -e ".[mcp]"`
+
+## Run
+
+```bash
+trilith serve --host 127.0.0.1 --port 8080 --grpc-port 50051
+```
+
+Docker:
+
+```bash
+docker build -t trilith .
+docker run -p 8080:8080 -p 50051:50051 -v trilith_data:/data trilith
+```
+
+## Call it (REST)
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/v1/write \
+  -H "Content-Type: application/json" \
+  -d '{"id":"f1","tier":"SEMANTIC","scope":"USER","content":"Alice prefers Python."}'
+
+curl -s -X POST http://127.0.0.1:8080/v1/assemble \
+  -H "Content-Type: application/json" \
+  -d '{"task":"What does Alice prefer?","budget":200,"requester_scope":"USER"}'
+```
+
+## Call it (gRPC)
+
+Proto service: `trilith.ContextManager` (`Write` / `Query` / `Assemble` / `Forget`) on port **50051**. See `proto/trilith.proto` and `tests/test_grpc.py`.
+
+## Where to use it
+
+Wire **assemble → prompt** in your agent loop (or MCP tools). Trilith is memory + governance, not an agent framework and not an LLM.
+
+## Docs
+
+- [Quickstart](docs/quickstart.md)
+- [Architecture](docs/architecture.md)
+- MCP demo: `examples/mcp_chat.py`
 
 ## License
 
-Trilith is distributed under the Apache License 2.0. See [LICENSE](LICENSE) for more details.
+Apache License 2.0 — see [LICENSE](LICENSE).

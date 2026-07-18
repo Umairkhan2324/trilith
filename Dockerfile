@@ -33,8 +33,7 @@ RUN python scripts/compile_proto.py
 RUN mkdir -p /data
 ENV TRILITH_DB_PATH=/data/trilith.db
 
-# Expose REST gateway port
-EXPOSE 8080
+# REST (8080) + gRPC (50051)
+EXPOSE 8080 50051
 
-# Default: run the HTTP server
-CMD ["python", "-m", "core.cli", "serve", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "-m", "core.cli", "serve", "--host", "0.0.0.0", "--port", "8080", "--grpc-port", "50051"]

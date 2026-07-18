@@ -7,8 +7,8 @@ from google.protobuf.timestamp_pb2 import Timestamp
 class SQLiteBackend:
     def __init__(self, db_path: str = ":memory:"):
         self.db_path = db_path
-        # Use factory that returns row dicts or tuples
-        self._conn = sqlite3.connect(self.db_path)
+        # check_same_thread=False: REST + gRPC share one connection via ThreadSafeBackend
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._init_db()
 
     def _init_db(self):
