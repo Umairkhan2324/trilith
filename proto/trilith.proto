@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package trilith;
+
+import "google/protobuf/timestamp.proto";
+
+enum Tier {
+  TIER_UNSPECIFIED = 0;
+  SEMANTIC = 1;
+  PROCEDURAL = 2;
+  EPISODIC = 3;
+}
+
+enum Scope {
+  SCOPE_UNSPECIFIED = 0;
+  USER = 1;
+  TENANT = 2;
+  SESSION = 3;
+  GLOBAL = 4;
+}
+
+message ContextItem {
+  string id = 1;
+  Tier tier = 2;
+  string content = 3;
+  Scope scope = 4;
+  string provenance = 5;
+  google.protobuf.Timestamp created_at = 6;
+  optional google.protobuf.Timestamp expires_at = 7;
+  repeated float embedding = 8;
+}
+
+message WriteRequest {
+  ContextItem item = 1;
+}
+
+message WriteAck {
+  bool success = 1;
+  string message = 2;
+}
+
+message QueryRequest {
+  Tier tier = 1;
+  string filter = 2;
+  int32 budget_tokens = 3;
+  string scope = 4;
+}
+
+message QueryResponse {
+  repeated ContextItem items = 1;
+}
+
+message AssembleRequest {
+  string task_description = 1;
+  int32 budget_tokens = 2;
+  string requester_scope = 3;
+}
+
+message ExcludedItem {
+  ContextItem item = 1;
+  string reason = 2;
+}
+
+message AssembledContext {
+  repeated ContextItem items = 1;
+  int32 tokens_used = 2;
+  repeated ExcludedItem excluded_items = 3;
+}
+
+message ForgetRequest {
+  string scope = 1;
+}
+
+message ForgetAck {
+  bool success = 1;
+  string message = 2;
+}
+
+service ContextManager {
+  rpc Write(WriteRequest) returns (WriteAck);
+  rpc Query(QueryRequest) returns (QueryResponse);
+  rpc Assemble(AssembleRequest) returns (AssembledContext);
+  rpc Forget(ForgetRequest) returns (ForgetAck);
+}
