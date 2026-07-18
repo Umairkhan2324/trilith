@@ -1,8 +1,45 @@
-# Trilith
+<div align="center">
 
-**Alpha (v0.1)** — open-source context management for AI agents: three memory tiers, budgeted assembly, privacy filtering, and auditable exclusions. No LLM or API key required to run.
+<!-- Typing title (renders on GitHub) -->
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=42&duration=2800&pause=1200&color=3DDC97&center=true&vCenter=true&width=680&lines=TRILITH;Context+Engineering+for+AI;Governed+Memory.+Zero+Bloat." alt="TRILITH" />
 
-Trilith sits **between your agent and the LLM prompt**. You write facts/events into stores; before each model call you `assemble` under a token budget and inject only the selected items.
+<br/>
+
+**Budgeted context. Three tiers. Auditable assembly.**  
+Open-source context management layer for AI agents — sits between your agent and the LLM prompt.
+
+<br/>
+
+<!-- Badges / tags -->
+[![Version](https://img.shields.io/badge/version-v0.1.0-3DDC97?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/Umairkhan2324/trilith)
+[![Status](https://img.shields.io/badge/status-BETA-f59e0b?style=for-the-badge)](https://github.com/Umairkhan2324/trilith)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+
+[![Context Management](https://img.shields.io/badge/context--management-ready-0ea5e9?style=flat-square)](docs/architecture.md)
+[![Context Engineering](https://img.shields.io/badge/context--engineering-core-8b5cf6?style=flat-square)](docs/architecture.md)
+[![MCP](https://img.shields.io/badge/MCP-adapter-111827?style=flat-square)](adapters/mcp/server.py)
+[![gRPC](https://img.shields.io/badge/gRPC-50051-00ADD8?style=flat-square&logo=grpc)](proto/trilith.proto)
+[![REST](https://img.shields.io/badge/REST-8080-009688?style=flat-square)](docs/quickstart.md)
+[![No LLM Key](https://img.shields.io/badge/API%20key-not%20required-22c55e?style=flat-square)](#expect--dont-expect)
+
+</div>
+
+---
+
+## Why Trilith?
+
+Agents drown in context. Trilith **governs** what enters the prompt:
+
+| Tier | Role |
+|------|------|
+| **Semantic** | Durable facts |
+| **Procedural** | Task steps (`fold` into summaries) |
+| **Episodic** | Scoped events + cascading `forget` |
+
+Policy → rank → fill budget → return **included + excluded with reasons**. No silent drops.
+
+---
 
 ## Expect / don’t expect
 
@@ -16,7 +53,9 @@ Trilith sits **between your agent and the LLM prompt**. You write facts/events i
 - Production multi-tenant IAM / real tenant IDs (scopes are coarse enums)
 - Vector DB backends, LangChain / OpenAI Agents adapters (stubs)
 - Auth on REST/gRPC (local-first; put a gateway in front for shared deploys)
-- Published PyPI package until you publish `trilith-core` (install from git for now)
+- PyPI publish until you release `trilith-core` (install from git for now)
+
+---
 
 ## Install
 
@@ -26,7 +65,7 @@ cd trilith
 pip install -e ".[server]"
 ```
 
-Optional MCP extras: `pip install -e ".[mcp]"`
+Optional MCP: `pip install -e ".[mcp]"`
 
 ## Run
 
@@ -55,18 +94,30 @@ curl -s -X POST http://127.0.0.1:8080/v1/assemble \
 
 ## Call it (gRPC)
 
-Proto service: `trilith.ContextManager` (`Write` / `Query` / `Assemble` / `Forget`) on port **50051**. See `proto/trilith.proto` and `tests/test_grpc.py`.
+Proto service: `trilith.ContextManager` (`Write` / `Query` / `Assemble` / `Forget`) on port **50051**.  
+See `proto/trilith.proto` and `tests/test_grpc.py`.
 
 ## Where to use it
 
-Wire **assemble → prompt** in your agent loop (or MCP tools). Trilith is memory + governance, not an agent framework and not an LLM.
+Wire **assemble → prompt** in your agent loop (or MCP tools).  
+Trilith = memory + governance — not an agent framework, not an LLM.
+
+---
 
 ## Docs
 
 - [Quickstart](docs/quickstart.md)
 - [Architecture](docs/architecture.md)
-- MCP demo: `examples/mcp_chat.py`
+- MCP demo: [`examples/mcp_chat.py`](examples/mcp_chat.py)
 
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**TRILITH** · context engineering · v0.1.0 beta
+
+</div>
