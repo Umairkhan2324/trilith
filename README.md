@@ -106,9 +106,9 @@ Trilith = memory + governance — not an agent framework, not an LLM.
 
 ## Docs
 
-- [Quickstart](docs/quickstart.md)
+- [Quickstart](docs/quickstart.md) — **imports, agent loop, REST/gRPC/MCP examples**
 - [Architecture](docs/architecture.md)
-- MCP demo: [`examples/mcp_chat.py`](examples/mcp_chat.py)
+- Demos: [`examples/in_process_usage.py`](examples/in_process_usage.py), [`examples/mcp_chat.py`](examples/mcp_chat.py)
 
 ## License
 
