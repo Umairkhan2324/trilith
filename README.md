@@ -69,7 +69,35 @@ Policy → rank → fill budget → return **included + excluded with reasons**.
 - Prefer: `trilith serve --host 127.0.0.1 ...`
 
 ---
+## How Trilith Compares
 
+There are several strong memory solutions for AI agents already. Here's an honest comparison — including where they beat Trilith.
+
+| | **Trilith** | Mem0 | Zep | LangMem |
+|---|---|---|---|---|
+| **Architecture** | 3-tier (semantic / procedural / episodic) with an explicit context **budget** | LLM-driven classification, hybrid vector + graph | Temporal knowledge graph | LangGraph-native store, 3 memory types |
+| **Framework lock-in** | None — LangChain, LangGraph, OpenAI Agents SDK, Claude tools, plus raw REST/gRPC/MCP | Framework-agnostic API | Framework-agnostic, strongest inside LangChain | LangGraph only |
+| **Context budget enforcement** | ✅ Explicit item/token budget enforced at assembly time | Not the primary focus | Not the primary focus | Not the primary focus |
+| **Audit trail on assembly** | ✅ Every `assemble()` call returns *included and excluded* items, with reasons | ❌ | ❌ | ❌ |
+| **Self-hosted, no LLM key required** | ✅ SQLite + TF-IDF ranking, works fully offline | OSS tier yes, graph/Pro features gated behind $249/mo | Free tier limited; deeper temporal/graph features are paid | ✅ zero extra infra inside LangGraph |
+| **Pricing** | Free, Apache 2.0 | Free tier + Pro from $249/mo | Free tier (limited credits) + plans from $25/mo | Free |
+| **Maturity** | v0.1, early beta | Tens of thousands of stars, production track record | Strong production track record, widely deployed | Newer (2025), backed by LangChain |
+
+### Why Trilith stands out
+
+- **It's the only one built around a hard context budget.** Mem0, Zep, and LangMem all focus on *what* to remember. Trilith focuses on *what fits* — you set a budget, and assembly respects it every time instead of silently growing your prompt.
+- **Nothing gets dropped without a reason you can see.** This is the gap every other option shares: retrieval either returns something or it doesn't, with no record of what almost made it and why it didn't. Trilith's excluded-items output closes that gap.
+- **No framework tax.** You're not locked into LangGraph (LangMem) or a hosted API (Mem0 Pro, Zep). Adapters exist for the major agent stacks, plus a plain REST/gRPC/MCP surface for anything custom.
+- **Fully local by default.** No LLM key, no external service call required just to manage memory — useful for anyone who doesn't want their context layer depending on a third-party API's uptime or pricing.
+
+### Where the others currently win — and I'd rather say this than have you find out the hard way
+
+- **Maturity and battle-testing.** Mem0 and Zep have years of production usage and tens of thousands of GitHub stars between them. Trilith is v0.1 beta — use it for prototyping and internal tools right now, not for something that can't fail.
+- **Temporal/graph reasoning.** If you need relationship modeling or time-aware fact resolution across a knowledge graph, Zep is purpose-built for that today. Trilith doesn't do this yet.
+- **Hosted, zero-ops option.** Mem0 and Zep offer managed cloud tiers. Trilith is self-hosted only right now — that's a feature for some teams and a dealbreaker for others.
+
+If your priority is transparency and hard budget control over your agent's context, Trilith is built exactly for that. If you need a mature, hosted, graph-native memory system today, Mem0 or Zep are the safer production choice — and I'd rather send you there than oversell what's still a beta.
+---
 ## Plug-and-play (30 seconds)
 
 ```bash
