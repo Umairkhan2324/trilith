@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- Typing title (renders on GitHub) -->
-<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=42&duration=2800&pause=1200&color=3DDC97&center=true&vCenter=true&width=680&lines=TRILITH;Context+Engineering+for+AI; Governed+Memory.+Zero+Bloat." alt="TRILITH" />
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=42&duration=2800&pause=1200&color=3DDC97&center=true&vCenter=true&width=680&lines=TRILITH;Context+Engineering+for+AI.Governed+Memory.+Zero+Bloat." alt="TRILITH" />
 
 <br/>
 
