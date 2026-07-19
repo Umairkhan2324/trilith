@@ -41,6 +41,20 @@ server = [
   "fastapi>=0.110.0",
   "uvicorn[standard]>=0.29.0",
 ]
+langchain = [
+  "langchain-core>=0.2.0",
+]
+openai-agents = [
+  "openai-agents>=0.0.14",
+]
+claude = [
+  "anthropic>=0.40.0",
+]
+adapters = [
+  "langchain-core>=0.2.0",
+  "openai-agents>=0.0.14",
+  "anthropic>=0.40.0",
+]
 
 [project.scripts]
 trilith = "core.cli:main"
@@ -51,7 +65,7 @@ Repository = "https://github.com/Umairkhan2324/trilith"
 Issues = "https://github.com/Umairkhan2324/trilith/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["core"]
+packages = ["core", "adapters"]
 
 [tool.ruff]
 line-length = 100

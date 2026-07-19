@@ -18,6 +18,10 @@ Open-source context management layer for AI agents — sits between your agent a
 
 [![Context Management](https://img.shields.io/badge/context--management-ready-0ea5e9?style=flat-square)](docs/architecture.md)
 [![Context Engineering](https://img.shields.io/badge/context--engineering-core-8b5cf6?style=flat-square)](docs/architecture.md)
+[![LangChain](https://img.shields.io/badge/LangChain%20%2F%20LangGraph-adapter-1C3C3C?style=flat-square)](docs/adapters.md)
+[![OpenAI Agents](https://img.shields.io/badge/OpenAI%20Agents-adapter-412991?style=flat-square)](docs/adapters.md)
+[![Claude](https://img.shields.io/badge/Claude%20SDK-adapter-D97706?style=flat-square)](docs/adapters.md)
+[![TypeScript](https://img.shields.io/badge/TypeScript-SDK-3178C6?style=flat-square&logo=typescript&logoColor=white)](sdks/typescript)
 [![MCP](https://img.shields.io/badge/MCP-adapter-111827?style=flat-square)](adapters/mcp/server.py)
 [![gRPC](https://img.shields.io/badge/gRPC-50051-00ADD8?style=flat-square&logo=grpc)](proto/trilith.proto)
 [![REST](https://img.shields.io/badge/REST-8080-009688?style=flat-square)](docs/quickstart.md)
@@ -45,15 +49,35 @@ Policy → rank → fill budget → return **included + excluded with reasons**.
 
 **Expect**
 - Local SQLite + TF-IDF ranking (zero external AI dependency)
-- REST (`:8080`) + gRPC (`:50051`) + MCP adapter
+- REST (`:8080`) + gRPC (`:50051`) + MCP
+- **Plug-and-play adapters:** LangChain/LangGraph, OpenAI Agents, Claude tools, TypeScript SDK
 - Auditable `excluded_items` with reasons
 - Physical `forget(scope)` across tiers
 
 **Don’t expect (yet)**
 - Production multi-tenant IAM / real tenant IDs (scopes are coarse enums)
-- Vector DB backends, LangChain / OpenAI Agents adapters (stubs)
+- Vector DB backends
 - Auth on REST/gRPC (local-first; put a gateway in front for shared deploys)
-- PyPI publish until you release `trilith-core` (install from git for now)
+- PyPI / npm publish until you release (install from git / path for now)
+
+---
+
+## Plug-and-play (30 seconds)
+
+```bash
+pip install -e ".[server]"
+trilith serve --host 127.0.0.1 --port 8080
+```
+
+| Stack | Drop-in |
+|-------|---------|
+| **Any Python** | `from core.client import TrilithClient` |
+| **LangChain / LangGraph** | `from adapters.langchain import make_trilith_tools, make_assemble_node` |
+| **OpenAI Agents SDK** | `from adapters.openai_agents import make_trilith_tools` |
+| **Claude / Anthropic** | `from adapters.claude_sdk import TRILITH_TOOL_SCHEMAS, run_trilith_tool` |
+| **TypeScript** | `import { TrilithClient } from "@trilith/sdk"` (see `sdks/typescript`) |
+
+Full copy-paste examples → **[docs/adapters.md](docs/adapters.md)**
 
 ---
 
@@ -106,9 +130,10 @@ Trilith = memory + governance — not an agent framework, not an LLM.
 
 ## Docs
 
-- [Quickstart](docs/quickstart.md) — **imports, agent loop, REST/gRPC/MCP examples**
+- [Quickstart](docs/quickstart.md) — imports, agent loop, REST/gRPC
+- [**Adapters (plug-and-play)**](docs/adapters.md) — LangChain, OpenAI Agents, Claude, TypeScript
 - [Architecture](docs/architecture.md)
-- Demos: [`examples/in_process_usage.py`](examples/in_process_usage.py), [`examples/mcp_chat.py`](examples/mcp_chat.py)
+- Demos: [`examples/in_process_usage.py`](examples/in_process_usage.py), [`examples/adapter_snippets.py`](examples/adapter_snippets.py)
 
 ## License
 

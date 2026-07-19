@@ -13,7 +13,10 @@ cd trilith
 pip install -e ".[server]"
 ```
 
-Optional: `pip install -e ".[mcp]"` for the MCP adapter.
+Optional: `pip install -e ".[mcp]"` for MCP, or `pip install -e ".[adapters]"` for LangChain + OpenAI Agents + Claude extras.
+
+> **Using LangGraph / OpenAI Agents / Claude / TypeScript?**  
+> Skip the in-process core and use **[adapters.md](adapters.md)** — start `trilith serve`, then import the drop-in tools/client.
 
 ---
 
