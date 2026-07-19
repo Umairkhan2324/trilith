@@ -40,7 +40,7 @@ def main():
     )
     sub = parser.add_subparsers(dest="command")
     serve = sub.add_parser("serve", help="Start REST + gRPC context servers")
-    serve.add_argument("--host", default="0.0.0.0")
+    serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: localhost)")
     serve.add_argument("--port", type=int, default=8080, help="REST port")
     serve.add_argument("--grpc-port", type=int, default=50051, help="gRPC port")
     serve.add_argument("--db", default=None, help="SQLite path (or TRILITH_DB_PATH)")

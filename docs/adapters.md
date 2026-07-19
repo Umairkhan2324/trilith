@@ -123,4 +123,4 @@ Tools: `write_context`, `assemble_context`, `forget_scope`.
 
 ## Requirement
 
-All adapters talk to **`trilith serve`** over REST. Keep the server running locally (or Docker). Auth is not enabled yet — localhost only for beta.
+All adapters talk to **`trilith serve`** over REST. Keep the server on **localhost** for beta (`--host 127.0.0.1`). There is **no auth** yet — do not expose the port publicly.

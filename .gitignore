@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Trilith local data
+*.db
+*.sqlite
+*.sqlite3
+trilith.db
+trilith_mcp.db
+example_*.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Node / TypeScript
+node_modules/
+sdks/typescript/dist/
+npm-debug.log*
+
+# Snapshots / misc
+.snapshots/
+
+# Proto local junk
+*.pb.go

@@ -57,8 +57,16 @@ Policy → rank → fill budget → return **included + excluded with reasons**.
 **Don’t expect (yet)**
 - Production multi-tenant IAM / real tenant IDs (scopes are coarse enums)
 - Vector DB backends
-- Auth on REST/gRPC (local-first; put a gateway in front for shared deploys)
-- PyPI / npm publish until you release (install from git / path for now)
+- Auth on REST/gRPC — **bind to `127.0.0.1` only** for beta; do not expose ports publicly
+- PyPI / npm packages yet — **install from this GitHub repo** (see below)
+
+---
+
+## Security (beta)
+
+- No API keys required for Trilith itself (it does not call an LLM)
+- **No authentication** on REST/gRPC yet → local testing only
+- Prefer: `trilith serve --host 127.0.0.1 ...`
 
 ---
 
@@ -81,7 +89,7 @@ Full copy-paste examples → **[docs/adapters.md](docs/adapters.md)**
 
 ---
 
-## Install
+## Install (from GitHub — not on PyPI yet)
 
 ```bash
 git clone https://github.com/Umairkhan2324/trilith.git
@@ -89,9 +97,9 @@ cd trilith
 pip install -e ".[server]"
 ```
 
-Optional MCP: `pip install -e ".[mcp]"`
+Optional: `pip install -e ".[mcp]"` or `pip install -e ".[adapters]"`
 
-## Run
+## Run (localhost)
 
 ```bash
 trilith serve --host 127.0.0.1 --port 8080 --grpc-port 50051
