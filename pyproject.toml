@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trilith-core"
-version = "0.1.0"
-description = "An open-source, language-agnostic context management layer for AI systems"
+version = "0.2.0"
+description = "An open-source, multi-tenant, language-agnostic context management layer for AI systems"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 authors = [
   { name = "Umair khan" }
 ]
-keywords = ["ai", "context", "memory", "mcp", "grpc", "llm"]
+keywords = ["ai", "context", "memory", "mcp", "grpc", "llm", "multi-tenant", "agents"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: Apache Software License",
@@ -70,6 +70,10 @@ packages = ["core", "adapters"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Generated protobuf bindings are not ours to lint. Import-sorting them, or
+# stripping the timestamp_pb2 import that looks unused but registers a
+# dependency in the descriptor pool, breaks them at import time.
+extend-exclude = ["core/proto"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

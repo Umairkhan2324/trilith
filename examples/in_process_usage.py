@@ -13,24 +13,34 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from core.identity import Principal
+from core.ops import write_item
 from core.proto.trilith_pb2 import ContextItem, Scope, Tier
 from core.runtime import build_runtime
 
 DB = ":memory:"  # use "trilith.db" for persistence across restarts
 
+# One user, one workspace: the default tenant with no owner named.
+# See examples/multi_tenant_usage.py for the many-customers version.
+ME = Principal()
+
 
 def remember(rt, item_id: str, content: str) -> None:
     ts = Timestamp()
     ts.GetCurrentTime()
-    rt.semantic.write(
+    write_item(
+        rt,
         ContextItem(
             id=item_id,
             tier=Tier.SEMANTIC,
-            scope=Scope.USER,
+            # TENANT = visible to everyone in this workspace. Use Scope.USER
+            # with an owner_id when an item must stay private to one person.
+            scope=Scope.TENANT,
             content=content,
             provenance="in_process_example",
             created_at=ts,
-        )
+        ),
+        principal=ME,
     )
 
 
@@ -38,7 +48,7 @@ def build_prompt(rt, user_message: str, budget: int = 400) -> tuple[str, object]
     ctx = rt.governor.assemble(
         task=user_message,
         budget=budget,
-        requester_scope="USER",
+        principal=ME,
     )
     memory = "\n".join(f"- {i.content}" for i in ctx.items)
     prompt = (

@@ -29,18 +29,24 @@ This is the fastest path: embed Trilith in your agent process. No server require
 ```python
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from core.identity import Principal
+from core.ops import write_item
 from core.runtime import build_runtime
 from core.proto.trilith_pb2 import ContextItem, Tier, Scope
 
 # One shared runtime (SQLite file persists across restarts)
 rt = build_runtime("trilith.db")
 # Or: build_runtime(":memory:") for ephemeral demos
+
+# Who this process is acting as. A bare Principal() is the default tenant
+# with no user named — right for a single-workspace app.
+ME = Principal()
 ```
 
 ### Write a fact (Semantic tier)
 
 ```python
-def remember(item_id: str, content: str, scope=Scope.USER) -> None:
+def remember(item_id: str, content: str, scope=Scope.TENANT) -> None:
     ts = Timestamp()
     ts.GetCurrentTime()
     item = ContextItem(
@@ -51,19 +57,24 @@ def remember(item_id: str, content: str, scope=Scope.USER) -> None:
         provenance="my_agent",
         created_at=ts,
     )
-    rt.semantic.write(item)
+    write_item(rt, item, principal=ME)   # stamps tenant/owner from the principal
 
 remember("pref-lang", "Alice prefers Python for backend work.")
 remember("proj", "Alice is building a distributed tracing tool.")
 ```
+
+> **Why `Scope.TENANT`?** It means *visible to everyone in this workspace* — the right
+> default for a single-user app. `Scope.USER` means *private to one named person*, so it
+> only isolates anything if you also pass an `owner_id`. Trilith won't hand a `USER` item
+> to an anonymous reader and pretend that was isolation.
 
 ### Assemble context (before the LLM call)
 
 ```python
 assembled = rt.governor.assemble(
     task="What should I know about Alice's work?",
-    budget=300,                 # soft token budget (~4 chars ≈ 1 token)
-    requester_scope="USER",     # privacy filter uses this
+    budget=300,          # soft token budget (~4 chars ≈ 1 token)
+    principal=ME,        # tenant/user/session identity drives the privacy filter
 )
 
 for item in assembled.items:
@@ -71,7 +82,13 @@ for item in assembled.items:
 
 for ex in assembled.excluded_items:
     print("excluded:", ex.item.id, "→", ex.reason)
+
+if assembled.candidates_truncated:
+    print(f"note: {assembled.candidates_truncated} candidates never reached ranking")
 ```
+
+> Upgrading from v0.1? `assemble(task, budget, requester_scope="USER")` still works
+> exactly as before. See [deployment.md](deployment.md#migrating-a-v01-database).
 
 ### Inject into your prompt (the integration point)
 
@@ -80,7 +97,7 @@ def build_prompt(user_message: str, budget: int = 400) -> str:
     ctx = rt.governor.assemble(
         task=user_message,
         budget=budget,
-        requester_scope="USER",
+        principal=ME,
     )
     memory_block = "\n".join(f"- {i.content}" for i in ctx.items)
     return (
@@ -145,11 +162,48 @@ def handle_turn(user_text: str, learn: str | None = None) -> str:
 
 - One-shot scripts with no memory
 - Replacing your vector DB / RAG corpus wholesale (Trilith governs *working* context; RAG can feed it later)
-- Auth / multi-tenant IAM (not built yet — local/beta only)
+- End-user identity management — Trilith isolates by `tenant_id`/`owner_id`, but it is not
+  an IAM system. Your app authenticates its users and tells Trilith who they are.
 
 ---
 
-## 4. Procedural + Episodic (when you need them)
+## 4. Many users and customers
+
+Isolation has two layers. `tenant_id` is a hard wall between customers; `owner_id` and
+`session_id` narrow visibility *inside* one customer.
+
+```python
+acme   = Principal(tenant_id="acme")                            # the whole tenant
+alice  = Principal(tenant_id="acme", owner_id="alice")          # one user
+chat   = Principal(tenant_id="acme", owner_id="alice", session_id="s1")
+globex = Principal(tenant_id="globex")                          # another customer
+
+def remember_for(principal, item_id, content, scope=Scope.TENANT):
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    write_item(rt, ContextItem(
+        id=item_id, tier=Tier.SEMANTIC, scope=scope,
+        content=content, provenance="app", created_at=ts,
+    ), principal=principal)
+
+remember_for(acme,  "plan", "Acme is migrating billing to Stripe.", Scope.TENANT)
+remember_for(alice, "pref", "Alice prefers Python.",                Scope.USER)
+
+rt.governor.assemble("billing", 300, principal=alice)   # sees both
+rt.governor.assemble("billing", 300, principal=acme)    # sees only the tenant plan
+rt.governor.assemble("billing", 300, principal=globex)  # sees neither
+```
+
+Cross-tenant rows are filtered in SQL, so globex's data is never ranked, never budgeted,
+and never listed as excluded. Runnable demo:
+[`examples/multi_tenant_usage.py`](../examples/multi_tenant_usage.py).
+
+Serving this over HTTP? Mint one API key per tenant so callers can't choose their own —
+see **[deployment.md](deployment.md)**.
+
+---
+
+## 5. Procedural + Episodic (when you need them)
 
 ```python
 # Procedural: steps of a task, then fold into one summary
@@ -161,10 +215,14 @@ step = ContextItem(
     provenance="planner",
 )
 ts = Timestamp(); ts.GetCurrentTime(); step.created_at.CopyFrom(ts)
+ME.stamp(step)                       # apply tenant/owner/session
 rt.procedural.write(step, subtask_id="deploy-42")
-summary = rt.procedural.fold("deploy-42")  # replaces steps with one item
 
-# Episodic: scoped events (scope REQUIRED on query)
+# Collapse the steps into one item once the sub-task is done, so they stop
+# consuming budget on every later assemble.
+summary = rt.procedural.fold("deploy-42", principal=ME)
+
+# Episodic: scoped events. Never cross a tenant boundary, not even GLOBAL ones.
 event = ContextItem(
     id="evt-1",
     tier=Tier.EPISODIC,
@@ -173,15 +231,20 @@ event = ContextItem(
     provenance="ui",
 )
 event.created_at.CopyFrom(ts)
-rt.episodic.write(event)
+write_item(rt, event, principal=ME)
 
-# Purge a scope across ALL tiers (physical delete)
-rt.episodic.forget("USER", notify_stores=[rt.semantic, rt.procedural])
+# Purge a scope across ALL tiers (physical delete), confined to this principal's
+# tenant — and to their own owner_id when the scope is USER.
+from core.ops import forget_scope, purge_expired
+forget_scope(rt, "USER", principal=ME)
+
+# Reap items past their TTL (also runs automatically at startup).
+purge_expired(rt, principal=ME)
 ```
 
 ---
 
-## 5. REST server (multi-language / sidecar)
+## 6. REST server (multi-language / sidecar)
 
 ```bash
 trilith serve --host 127.0.0.1 --port 8080 --grpc-port 50051
@@ -233,7 +296,7 @@ prompt = f"Context:\n{memory}\n\nUser: What does Alice prefer?"
 
 ---
 
-## 6. gRPC (same ops, typed)
+## 7. gRPC (same ops, typed)
 
 ```python
 import grpc
@@ -246,35 +309,46 @@ channel = grpc.insecure_channel("127.0.0.1:50051")
 stub = trilith_pb2_grpc.ContextManagerStub(channel)
 
 ts = Timestamp(); ts.GetCurrentTime()
-stub.Write(trilith_pb2.WriteRequest(item=ContextItem(
-    id="g1", tier=Tier.SEMANTIC, scope=Scope.USER,
-    content="Alice uses Go and Python",
-    created_at=ts, provenance="grpc_client",
-)))
+acme = trilith_pb2.Principal(tenant_id="acme", owner_id="alice")
+
+stub.Write(trilith_pb2.WriteRequest(
+    item=ContextItem(
+        id="g1", tier=Tier.SEMANTIC, scope=Scope.TENANT,
+        content="Alice uses Go and Python",
+        created_at=ts, provenance="grpc_client",
+    ),
+    principal=acme,
+))
 
 assembled = stub.Assemble(trilith_pb2.AssembleRequest(
     task_description="What languages does Alice use?",
     budget_tokens=200,
-    requester_scope="USER",
+    principal=acme,
 ))
 print([i.content for i in assembled.items])
+
+# Also available: Query, Forget, Fold, PurgeExpired.
+# With auth on, pass metadata=(("authorization", f"Bearer {key}"),) on every call.
 ```
 
 ---
 
-## 7. MCP adapter
+## 8. MCP adapter
 
 ```bash
 pip install -e ".[mcp]"
 python adapters/mcp/server.py
 ```
 
-Tools: `write_context`, `assemble_context`, `forget_scope`.  
+Tools: `write_context`, `assemble_context`, `fold_procedural`, `forget`,
+`purge_expired_items`. Each takes a `tenant_id` (default `"default"`), so one MCP
+host can serve several isolated workspaces from one database file.  
 Persistence demo: [`examples/mcp_chat.py`](../examples/mcp_chat.py)
 
 ---
 
 ## Next
 
+- Tenants, API keys, Docker, migrating a v0.1 database: [deployment.md](deployment.md)
 - Design deep-dive: [architecture.md](architecture.md)
 - Proto contract: [`proto/trilith.proto`](../proto/trilith.proto)

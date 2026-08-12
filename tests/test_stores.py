@@ -1,10 +1,12 @@
 import pytest
-from core.proto.trilith_pb2 import ContextItem, Tier, Scope
-from core.sqlite_backend import SQLiteBackend
-from core.semantic import SemanticStore
-from core.procedural import ProceduralStore
-from core.episodic import EpisodicStore
 from google.protobuf.timestamp_pb2 import Timestamp
+
+from core.episodic import EpisodicStore
+from core.procedural import ProceduralStore
+from core.proto.trilith_pb2 import ContextItem, Scope, Tier
+from core.semantic import SemanticStore
+from core.sqlite_backend import SQLiteBackend
+
 
 def create_item(item_id, tier, scope, content="Test contents"):
     created = Timestamp()

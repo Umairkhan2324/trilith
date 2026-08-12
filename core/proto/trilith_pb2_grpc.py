@@ -54,6 +54,16 @@ class ContextManagerStub:
                 request_serializer=trilith__pb2.ForgetRequest.SerializeToString,
                 response_deserializer=trilith__pb2.ForgetAck.FromString,
                 _registered_method=True)
+        self.Fold = channel.unary_unary(
+                '/trilith.ContextManager/Fold',
+                request_serializer=trilith__pb2.FoldRequest.SerializeToString,
+                response_deserializer=trilith__pb2.FoldResponse.FromString,
+                _registered_method=True)
+        self.PurgeExpired = channel.unary_unary(
+                '/trilith.ContextManager/PurgeExpired',
+                request_serializer=trilith__pb2.PurgeExpiredRequest.SerializeToString,
+                response_deserializer=trilith__pb2.PurgeExpiredResponse.FromString,
+                _registered_method=True)
 
 
 class ContextManagerServicer:
@@ -83,6 +93,18 @@ class ContextManagerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Fold(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PurgeExpired(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ContextManagerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -105,6 +127,16 @@ def add_ContextManagerServicer_to_server(servicer, server):
                     servicer.Forget,
                     request_deserializer=trilith__pb2.ForgetRequest.FromString,
                     response_serializer=trilith__pb2.ForgetAck.SerializeToString,
+            ),
+            'Fold': grpc.unary_unary_rpc_method_handler(
+                    servicer.Fold,
+                    request_deserializer=trilith__pb2.FoldRequest.FromString,
+                    response_serializer=trilith__pb2.FoldResponse.SerializeToString,
+            ),
+            'PurgeExpired': grpc.unary_unary_rpc_method_handler(
+                    servicer.PurgeExpired,
+                    request_deserializer=trilith__pb2.PurgeExpiredRequest.FromString,
+                    response_serializer=trilith__pb2.PurgeExpiredResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -215,6 +247,60 @@ class ContextManager:
             '/trilith.ContextManager/Forget',
             trilith__pb2.ForgetRequest.SerializeToString,
             trilith__pb2.ForgetAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Fold(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/trilith.ContextManager/Fold',
+            trilith__pb2.FoldRequest.SerializeToString,
+            trilith__pb2.FoldResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PurgeExpired(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/trilith.ContextManager/PurgeExpired',
+            trilith__pb2.PurgeExpiredRequest.SerializeToString,
+            trilith__pb2.PurgeExpiredResponse.FromString,
             options,
             channel_credentials,
             insecure,

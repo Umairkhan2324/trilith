@@ -1,66 +1,74 @@
 from typing import List, Optional
-from core.proto.trilith_pb2 import ContextItem, Tier, Scope
-from core.sqlite_backend import SQLiteBackend
+
 from google.protobuf.timestamp_pb2 import Timestamp
 
-class ProceduralStore:
-    def __init__(self, backend=None):
-        self.backend = backend or SQLiteBackend()
-        self.tier = Tier.PROCEDURAL
+from core.identity import Principal, normalize_tenant
+from core.proto.trilith_pb2 import ContextItem, Scope, Tier
+from core.store_base import BaseStore
+
+
+class ProceduralStore(BaseStore):
+    """Task steps, foldable into a single summary once a sub-task is done."""
+
+    tier = Tier.PROCEDURAL
+    include_global = True
 
     def write(self, item: ContextItem, subtask_id: Optional[str] = None) -> bool:
-        # Guarantee item's tier is PROCEDURAL
         item.tier = Tier.PROCEDURAL
         return self.backend.save(item, subtask_id=subtask_id)
 
-    def query(self, filter: str = "", budget_tokens: int = 0, scope: str = "") -> List[ContextItem]:
-        scope_enum = None
-        if scope:
-            try:
-                scope_enum = Scope.Value(scope.upper())
-            except ValueError:
-                pass
-        
-        return self.backend.query(Tier.PROCEDURAL, scope=scope_enum)
+    def fold(
+        self,
+        subtask_id: str,
+        principal: Optional[Principal] = None,
+    ) -> Optional[ContextItem]:
+        """Collapse the steps of one sub-task into a single summary item.
 
-    def fold(self, subtask_id: str) -> Optional[ContextItem]:
-        """Collapses a sequence of items matching subtask_id into one summary item.
+        The originals are deleted and replaced by the summary, which keeps a
+        long-running task from growing its procedural footprint without bound.
 
-        Deletes the original items from store and inserts the summary item.
+        When a principal is given, only that tenant's steps are folded — one
+        tenant can never collapse or read another's sub-task.
         """
-        # Query items for this subtask
-        items = self.backend.query(Tier.PROCEDURAL, subtask_id=subtask_id)
+        tenant = principal.tenant_id if principal else None
+
+        items: List[ContextItem] = self.backend.query(
+            Tier.PROCEDURAL,
+            subtask_id=subtask_id,
+            tenant_id=tenant,
+        )
         if not items:
             return None
 
-        # Create collapsed description
-        summary_content = f"Folded Procedural Context for subtask {subtask_id} containing {len(items)} steps:\n"
         # Preserve chronological order based on created_at if possible
         items_sorted = sorted(items, key=lambda x: (x.created_at.seconds, x.created_at.nanos))
+
+        summary_content = (
+            f"Folded Procedural Context for subtask {subtask_id} "
+            f"containing {len(items)} steps:\n"
+        )
         summary_content += "\n".join(f"- [{i.id}] {i.content}" for i in items_sorted)
 
-        # Build collapsed context item
-        summary_id = f"folded-{subtask_id}"
-        
-        # Find scope from items or default to GLOBAL
-        first_scope = items_sorted[0].scope if items_sorted else Scope.GLOBAL
-        
+        first = items_sorted[0]
         created = Timestamp()
         created.GetCurrentTime()
-        
+
         summary_item = ContextItem(
-            id=summary_id,
+            id=f"folded-{subtask_id}",
             tier=Tier.PROCEDURAL,
             content=summary_content,
-            scope=first_scope,
+            scope=first.scope if items_sorted else Scope.GLOBAL,
             provenance="procedural_fold",
-            created_at=created
+            created_at=created,
+            tenant_id=normalize_tenant(principal.tenant_id if principal else first.tenant_id),
+            owner_id=first.owner_id,
+            session_id=first.session_id,
         )
 
-        # Delete all original items
         for item in items:
-            self.backend.delete(item.id)
+            self.backend.delete(item.id, tenant_id=tenant)
 
-        # Write summary item back under the same subtask_id (so it represents it)
+        # Write the summary back under the same subtask_id, so it stands in
+        # for the steps it replaced.
         self.backend.save(summary_item, subtask_id=subtask_id)
         return summary_item

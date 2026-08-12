@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from io import BytesIO
 from unittest.mock import patch
 
 from core.client import TrilithClient

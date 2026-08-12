@@ -1,10 +1,12 @@
 import math
 import re
-from collections import Counter
-from typing import List, Tuple, Optional
 from abc import ABC, abstractmethod
+from collections import Counter
+from typing import List, Optional, Tuple, Union
 
-from core.proto.trilith_pb2 import ContextItem, AssembledContext, ExcludedItem
+from core.identity import Principal
+from core.proto.trilith_pb2 import AssembledContext, ContextItem, ExcludedItem
+
 
 class Scorer(ABC):
     @abstractmethod
@@ -168,6 +170,16 @@ class EmbeddingScorer(Scorer):
 
 
 class Governor:
+    """Ranks candidate context and fills a token budget, auditing what it drops.
+
+    Cost note: the distraction penalty compares every candidate against every
+    other, so assembly is O(n²) in the candidate count. `max_candidates` caps
+    how many items a single tier may contribute (newest first), and
+    `max_pairwise` is the size above which the penalty is skipped entirely
+    rather than allowed to dominate latency. Both are surfaced rather than
+    silent: `AssembledContext.candidates_truncated` reports what was cut.
+    """
+
     def __init__(
         self,
         semantic_store=None,
@@ -175,7 +187,9 @@ class Governor:
         episodic_store=None,
         policy_engine=None,
         scorer: Optional[Scorer] = None,
-        distraction_coef: float = 0.5
+        distraction_coef: float = 0.5,
+        max_candidates: int = 500,
+        max_pairwise: int = 400,
     ):
         self.semantic_store = semantic_store
         self.procedural_store = procedural_store
@@ -183,6 +197,8 @@ class Governor:
         self.policy_engine = policy_engine
         self.scorer = scorer or TFIDFScorer()
         self.distraction_coef = distraction_coef
+        self.max_candidates = max_candidates
+        self.max_pairwise = max_pairwise
 
     def estimate_tokens(self, item: ContextItem) -> int:
         """Estimate token consumption of a given context item.
@@ -211,7 +227,11 @@ class Governor:
         n = len(candidates)
         corpus_similarities = [0.0] * n
 
-        if n > 1 and isinstance(self.scorer, TFIDFScorer):
+        if n > self.max_pairwise:
+            # The pairwise matrix is O(n²); past this size the penalty costs
+            # more than it is worth. Rank on task similarity alone.
+            pass
+        elif n > 1 and isinstance(self.scorer, TFIDFScorer):
             # Compute using TF-IDF pairwise similarity
             matrix = self.scorer.compute_pairwise_similarities(candidates)
             for i in range(n):
@@ -247,31 +267,70 @@ class Governor:
         ranked.sort(key=lambda x: x[1], reverse=True)
         return ranked
 
+    def _collect(
+        self,
+        store,
+        task: str,
+        budget: int,
+        principal: Principal,
+    ) -> Tuple[List[ContextItem], int]:
+        """Pull one tier's candidates. Returns (items, truncated_count).
+
+        Stores that implement `query_for` are read tenant-scoped and capped.
+        Anything else (a custom or mock store) keeps the v0.1 call shape.
+        """
+        if store is None:
+            return [], 0
+
+        if not hasattr(store, "query_for"):
+            legacy = store.query(
+                filter=task,
+                budget_tokens=budget,
+                scope=principal.legacy_scope,
+            )
+            return list(legacy), 0
+
+        items = store.query_for(principal, limit=self.max_candidates)
+
+        truncated = 0
+        if len(items) >= self.max_candidates and hasattr(store, "count_for"):
+            truncated = max(0, store.count_for(principal) - len(items))
+        return items, truncated
+
     def assemble(
         self,
         task: str,
         budget: int,
-        requester_scope: str = ""
+        requester_scope: str = "",
+        principal: Optional[Union[Principal, str]] = None,
     ) -> AssembledContext:
-        """Query stores, filter by policy, rank, fill token budget, audit exclusions."""
-        candidates = []
+        """Query stores, filter by policy, rank, fill token budget, audit exclusions.
 
-        # 1. Retrieve candidates from tiers
-        if self.semantic_store:
-            # Query all semantic items
-            candidates.extend(self.semantic_store.query(filter=task, budget_tokens=budget, scope=requester_scope))
-        if self.procedural_store:
-            candidates.extend(self.procedural_store.query(filter=task, budget_tokens=budget, scope=requester_scope))
-        if self.episodic_store:
-            candidates.extend(self.episodic_store.query(filter=task, budget_tokens=budget, scope=requester_scope))
+        `principal` carries tenant/owner/session identity and is the preferred
+        input. `requester_scope` remains accepted for v0.1 callers and is
+        interpreted as a legacy scope name.
+        """
+        if principal is None:
+            principal = Principal(legacy_scope=requester_scope)
+        elif isinstance(principal, str):
+            principal = Principal(legacy_scope=principal)
+
+        # 1. Retrieve candidates from tiers.
+        #    Every tier is read through the principal, so an episodic read is
+        #    bounded by tenant instead of refusing to run without a scope
+        #    string — assembly no longer fails for GLOBAL or empty scopes.
+        candidates: List[ContextItem] = []
+        candidates_truncated = 0
+        for store in (self.semantic_store, self.procedural_store, self.episodic_store):
+            items, truncated = self._collect(store, task, budget, principal)
+            candidates.extend(items)
+            candidates_truncated += truncated
 
         excluded_items = []
 
         # 2. Run Privacy/Policy Engine before ranking
-        allowed_candidates = []
         if self.policy_engine:
-            allowed, denied_list = self.policy_engine.filter(candidates, requester_scope)
-            allowed_candidates = allowed
+            allowed_candidates, denied_list = self.policy_engine.filter(candidates, principal)
             for item, reason in denied_list:
                 excluded_items.append(ExcludedItem(item=item, reason=reason))
         else:
@@ -295,5 +354,6 @@ class Governor:
         return AssembledContext(
             items=assembled_items,
             tokens_used=tokens_used,
-            excluded_items=excluded_items
+            excluded_items=excluded_items,
+            candidates_truncated=candidates_truncated,
         )

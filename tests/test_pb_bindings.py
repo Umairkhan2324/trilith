@@ -1,19 +1,14 @@
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
+
 from core.proto.trilith_pb2 import (
-    ContextItem,
-    Tier,
-    Scope,
-    WriteRequest,
-    WriteAck,
-    QueryRequest,
-    QueryResponse,
-    AssembleRequest,
     AssembledContext,
+    ContextItem,
     ExcludedItem,
-    ForgetRequest,
-    ForgetAck
+    Scope,
+    Tier,
 )
+
 
 def test_context_item_serialization():
     created = Timestamp()

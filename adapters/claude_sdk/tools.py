@@ -1,4 +1,9 @@
-"""Anthropic / Claude tool schemas + dispatcher for Trilith."""
+"""Anthropic / Claude tool schemas + dispatcher for Trilith.
+
+Identity is deliberately absent from these schemas. Tenant, owner, and session
+are bound on the `TrilithClient` you pass to `run_trilith_tool`, so the model
+cannot name a tenant of its own choosing in a tool call.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +30,12 @@ TRILITH_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "scope": {
                     "type": "string",
                     "enum": ["USER", "TENANT", "SESSION", "GLOBAL"],
-                    "default": "USER",
+                    "default": "TENANT",
+                    "description": (
+                        "Visibility within the tenant: GLOBAL is shared across "
+                        "tenants, TENANT is tenant-wide, USER and SESSION are "
+                        "private to the calling user or session."
+                    ),
                 },
             },
             "required": ["id", "content"],
@@ -39,14 +49,25 @@ TRILITH_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "task": {"type": "string"},
                 "budget": {"type": "integer", "default": 300},
-                "requester_scope": {"type": "string", "default": "USER"},
             },
             "required": ["task"],
         },
     },
     {
+        "name": "trilith_fold",
+        "description": (
+            "Collapse a finished sub-task's procedural steps into one summary "
+            "item, so they stop consuming context budget."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"subtask_id": {"type": "string"}},
+            "required": ["subtask_id"],
+        },
+    },
+    {
         "name": "trilith_forget",
-        "description": "Physically purge all Trilith memory for a scope.",
+        "description": "Physically purge Trilith memory for a scope within your tenant.",
         "input_schema": {
             "type": "object",
             "properties": {"scope": {"type": "string"}},
@@ -69,7 +90,7 @@ def run_trilith_tool(
                 id=tool_input["id"],
                 content=tool_input["content"],
                 tier=tool_input.get("tier", "SEMANTIC"),
-                scope=tool_input.get("scope", "USER"),
+                scope=tool_input.get("scope", "TENANT"),
             )
         )
     if name == "trilith_assemble":
@@ -77,9 +98,10 @@ def run_trilith_tool(
             c.assemble(
                 task=tool_input["task"],
                 budget=int(tool_input.get("budget", 300)),
-                requester_scope=tool_input.get("requester_scope", "USER"),
             )
         )
+    if name == "trilith_fold":
+        return json.dumps(c.fold(tool_input["subtask_id"]))
     if name == "trilith_forget":
         return json.dumps(c.forget(tool_input["scope"]))
     return json.dumps({"error": f"unknown tool: {name}"})

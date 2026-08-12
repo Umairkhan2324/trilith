@@ -1,6 +1,6 @@
-import pytest
-from core.proto.trilith_pb2 import ContextItem, Tier, Scope
-from core.governor import Governor, TFIDFScorer
+from core.governor import Governor
+from core.proto.trilith_pb2 import ContextItem, Tier
+
 
 class MockStore:
     def __init__(self, items):

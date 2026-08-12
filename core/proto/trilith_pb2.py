@@ -25,37 +25,47 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rtrilith.proto\x12\x07trilith\x1a\x1fgoogle/protobuf/timestamp.proto\"\x81\x02\n\x0b\x43ontextItem\x12\n\n\x02id\x18\x01 \x01(\t\x12\x1b\n\x04tier\x18\x02 \x01(\x0e\x32\r.trilith.Tier\x12\x0f\n\x07\x63ontent\x18\x03 \x01(\t\x12\x1d\n\x05scope\x18\x04 \x01(\x0e\x32\x0e.trilith.Scope\x12\x12\n\nprovenance\x18\x05 \x01(\t\x12.\n\ncreated_at\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x33\n\nexpires_at\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.TimestampH\x00\x88\x01\x01\x12\x11\n\tembedding\x18\x08 \x03(\x02\x42\r\n\x0b_expires_at\"2\n\x0cWriteRequest\x12\"\n\x04item\x18\x01 \x01(\x0b\x32\x14.trilith.ContextItem\",\n\x08WriteAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"a\n\x0cQueryRequest\x12\x1b\n\x04tier\x18\x01 \x01(\x0e\x32\r.trilith.Tier\x12\x0e\n\x06\x66ilter\x18\x02 \x01(\t\x12\x15\n\rbudget_tokens\x18\x03 \x01(\x05\x12\r\n\x05scope\x18\x04 \x01(\t\"4\n\rQueryResponse\x12#\n\x05items\x18\x01 \x03(\x0b\x32\x14.trilith.ContextItem\"[\n\x0f\x41ssembleRequest\x12\x18\n\x10task_description\x18\x01 \x01(\t\x12\x15\n\rbudget_tokens\x18\x02 \x01(\x05\x12\x17\n\x0frequester_scope\x18\x03 \x01(\t\"B\n\x0c\x45xcludedItem\x12\"\n\x04item\x18\x01 \x01(\x0b\x32\x14.trilith.ContextItem\x12\x0e\n\x06reason\x18\x02 \x01(\t\"{\n\x10\x41ssembledContext\x12#\n\x05items\x18\x01 \x03(\x0b\x32\x14.trilith.ContextItem\x12\x13\n\x0btokens_used\x18\x02 \x01(\x05\x12-\n\x0e\x65xcluded_items\x18\x03 \x03(\x0b\x32\x15.trilith.ExcludedItem\"\x1e\n\rForgetRequest\x12\r\n\x05scope\x18\x01 \x01(\t\"-\n\tForgetAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t*H\n\x04Tier\x12\x14\n\x10TIER_UNSPECIFIED\x10\x00\x12\x0c\n\x08SEMANTIC\x10\x01\x12\x0e\n\nPROCEDURAL\x10\x02\x12\x0c\n\x08\x45PISODIC\x10\x03*M\n\x05Scope\x12\x15\n\x11SCOPE_UNSPECIFIED\x10\x00\x12\x08\n\x04USER\x10\x01\x12\n\n\x06TENANT\x10\x02\x12\x0b\n\x07SESSION\x10\x03\x12\n\n\x06GLOBAL\x10\x04\x32\xf2\x01\n\x0e\x43ontextManager\x12\x31\n\x05Write\x12\x15.trilith.WriteRequest\x1a\x11.trilith.WriteAck\x12\x36\n\x05Query\x12\x15.trilith.QueryRequest\x1a\x16.trilith.QueryResponse\x12?\n\x08\x41ssemble\x12\x18.trilith.AssembleRequest\x1a\x19.trilith.AssembledContext\x12\x34\n\x06\x46orget\x12\x16.trilith.ForgetRequest\x1a\x12.trilith.ForgetAckb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rtrilith.proto\x12\x07trilith\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x02\n\x0b\x43ontextItem\x12\n\n\x02id\x18\x01 \x01(\t\x12\x1b\n\x04tier\x18\x02 \x01(\x0e\x32\r.trilith.Tier\x12\x0f\n\x07\x63ontent\x18\x03 \x01(\t\x12\x1d\n\x05scope\x18\x04 \x01(\x0e\x32\x0e.trilith.Scope\x12\x12\n\nprovenance\x18\x05 \x01(\t\x12.\n\ncreated_at\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x33\n\nexpires_at\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.TimestampH\x00\x88\x01\x01\x12\x11\n\tembedding\x18\x08 \x03(\x02\x12\x11\n\ttenant_id\x18\t \x01(\t\x12\x10\n\x08owner_id\x18\n \x01(\t\x12\x12\n\nsession_id\x18\x0b \x01(\tB\r\n\x0b_expires_at\"]\n\tPrincipal\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x10\n\x08owner_id\x18\x02 \x01(\t\x12\x12\n\nsession_id\x18\x03 \x01(\t\x12\x17\n\x0frequester_scope\x18\x04 \x01(\t\"Y\n\x0cWriteRequest\x12\"\n\x04item\x18\x01 \x01(\x0b\x32\x14.trilith.ContextItem\x12%\n\tprincipal\x18\x02 \x01(\x0b\x32\x12.trilith.Principal\",\n\x08WriteAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\x88\x01\n\x0cQueryRequest\x12\x1b\n\x04tier\x18\x01 \x01(\x0e\x32\r.trilith.Tier\x12\x0e\n\x06\x66ilter\x18\x02 \x01(\t\x12\x15\n\rbudget_tokens\x18\x03 \x01(\x05\x12\r\n\x05scope\x18\x04 \x01(\t\x12%\n\tprincipal\x18\x05 \x01(\x0b\x32\x12.trilith.Principal\"4\n\rQueryResponse\x12#\n\x05items\x18\x01 \x03(\x0b\x32\x14.trilith.ContextItem\"\x82\x01\n\x0f\x41ssembleRequest\x12\x18\n\x10task_description\x18\x01 \x01(\t\x12\x15\n\rbudget_tokens\x18\x02 \x01(\x05\x12\x17\n\x0frequester_scope\x18\x03 \x01(\t\x12%\n\tprincipal\x18\x04 \x01(\x0b\x32\x12.trilith.Principal\"B\n\x0c\x45xcludedItem\x12\"\n\x04item\x18\x01 \x01(\x0b\x32\x14.trilith.ContextItem\x12\x0e\n\x06reason\x18\x02 \x01(\t\"\x99\x01\n\x10\x41ssembledContext\x12#\n\x05items\x18\x01 \x03(\x0b\x32\x14.trilith.ContextItem\x12\x13\n\x0btokens_used\x18\x02 \x01(\x05\x12-\n\x0e\x65xcluded_items\x18\x03 \x03(\x0b\x32\x15.trilith.ExcludedItem\x12\x1c\n\x14\x63\x61ndidates_truncated\x18\x04 \x01(\x05\"E\n\rForgetRequest\x12\r\n\x05scope\x18\x01 \x01(\t\x12%\n\tprincipal\x18\x02 \x01(\x0b\x32\x12.trilith.Principal\"D\n\tForgetAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x15\n\rdeleted_count\x18\x03 \x01(\x05\"H\n\x0b\x46oldRequest\x12\x12\n\nsubtask_id\x18\x01 \x01(\t\x12%\n\tprincipal\x18\x02 \x01(\x0b\x32\x12.trilith.Principal\"j\n\x0c\x46oldResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\"\n\x04item\x18\x03 \x01(\x0b\x32\x14.trilith.ContextItem\x12\x14\n\x0c\x66olded_count\x18\x04 \x01(\x05\"<\n\x13PurgeExpiredRequest\x12%\n\tprincipal\x18\x01 \x01(\x0b\x32\x12.trilith.Principal\">\n\x14PurgeExpiredResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x15\n\rdeleted_count\x18\x02 \x01(\x05*H\n\x04Tier\x12\x14\n\x10TIER_UNSPECIFIED\x10\x00\x12\x0c\n\x08SEMANTIC\x10\x01\x12\x0e\n\nPROCEDURAL\x10\x02\x12\x0c\n\x08\x45PISODIC\x10\x03*M\n\x05Scope\x12\x15\n\x11SCOPE_UNSPECIFIED\x10\x00\x12\x08\n\x04USER\x10\x01\x12\n\n\x06TENANT\x10\x02\x12\x0b\n\x07SESSION\x10\x03\x12\n\n\x06GLOBAL\x10\x04\x32\xf4\x02\n\x0e\x43ontextManager\x12\x31\n\x05Write\x12\x15.trilith.WriteRequest\x1a\x11.trilith.WriteAck\x12\x36\n\x05Query\x12\x15.trilith.QueryRequest\x1a\x16.trilith.QueryResponse\x12?\n\x08\x41ssemble\x12\x18.trilith.AssembleRequest\x1a\x19.trilith.AssembledContext\x12\x34\n\x06\x46orget\x12\x16.trilith.ForgetRequest\x1a\x12.trilith.ForgetAck\x12\x33\n\x04\x46old\x12\x14.trilith.FoldRequest\x1a\x15.trilith.FoldResponse\x12K\n\x0cPurgeExpired\x12\x1c.trilith.PurgeExpiredRequest\x1a\x1d.trilith.PurgeExpiredResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'trilith_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_TIER']._serialized_start=935
-  _globals['_TIER']._serialized_end=1007
-  _globals['_SCOPE']._serialized_start=1009
-  _globals['_SCOPE']._serialized_end=1086
+  _globals['_TIER']._serialized_start=1607
+  _globals['_TIER']._serialized_end=1679
+  _globals['_SCOPE']._serialized_start=1681
+  _globals['_SCOPE']._serialized_end=1758
   _globals['_CONTEXTITEM']._serialized_start=60
-  _globals['_CONTEXTITEM']._serialized_end=317
-  _globals['_WRITEREQUEST']._serialized_start=319
-  _globals['_WRITEREQUEST']._serialized_end=369
-  _globals['_WRITEACK']._serialized_start=371
-  _globals['_WRITEACK']._serialized_end=415
-  _globals['_QUERYREQUEST']._serialized_start=417
-  _globals['_QUERYREQUEST']._serialized_end=514
-  _globals['_QUERYRESPONSE']._serialized_start=516
-  _globals['_QUERYRESPONSE']._serialized_end=568
-  _globals['_ASSEMBLEREQUEST']._serialized_start=570
-  _globals['_ASSEMBLEREQUEST']._serialized_end=661
-  _globals['_EXCLUDEDITEM']._serialized_start=663
-  _globals['_EXCLUDEDITEM']._serialized_end=729
-  _globals['_ASSEMBLEDCONTEXT']._serialized_start=731
-  _globals['_ASSEMBLEDCONTEXT']._serialized_end=854
-  _globals['_FORGETREQUEST']._serialized_start=856
-  _globals['_FORGETREQUEST']._serialized_end=886
-  _globals['_FORGETACK']._serialized_start=888
-  _globals['_FORGETACK']._serialized_end=933
-  _globals['_CONTEXTMANAGER']._serialized_start=1089
-  _globals['_CONTEXTMANAGER']._serialized_end=1331
+  _globals['_CONTEXTITEM']._serialized_end=374
+  _globals['_PRINCIPAL']._serialized_start=376
+  _globals['_PRINCIPAL']._serialized_end=469
+  _globals['_WRITEREQUEST']._serialized_start=471
+  _globals['_WRITEREQUEST']._serialized_end=560
+  _globals['_WRITEACK']._serialized_start=562
+  _globals['_WRITEACK']._serialized_end=606
+  _globals['_QUERYREQUEST']._serialized_start=609
+  _globals['_QUERYREQUEST']._serialized_end=745
+  _globals['_QUERYRESPONSE']._serialized_start=747
+  _globals['_QUERYRESPONSE']._serialized_end=799
+  _globals['_ASSEMBLEREQUEST']._serialized_start=802
+  _globals['_ASSEMBLEREQUEST']._serialized_end=932
+  _globals['_EXCLUDEDITEM']._serialized_start=934
+  _globals['_EXCLUDEDITEM']._serialized_end=1000
+  _globals['_ASSEMBLEDCONTEXT']._serialized_start=1003
+  _globals['_ASSEMBLEDCONTEXT']._serialized_end=1156
+  _globals['_FORGETREQUEST']._serialized_start=1158
+  _globals['_FORGETREQUEST']._serialized_end=1227
+  _globals['_FORGETACK']._serialized_start=1229
+  _globals['_FORGETACK']._serialized_end=1297
+  _globals['_FOLDREQUEST']._serialized_start=1299
+  _globals['_FOLDREQUEST']._serialized_end=1371
+  _globals['_FOLDRESPONSE']._serialized_start=1373
+  _globals['_FOLDRESPONSE']._serialized_end=1479
+  _globals['_PURGEEXPIREDREQUEST']._serialized_start=1481
+  _globals['_PURGEEXPIREDREQUEST']._serialized_end=1541
+  _globals['_PURGEEXPIREDRESPONSE']._serialized_start=1543
+  _globals['_PURGEEXPIREDRESPONSE']._serialized_end=1605
+  _globals['_CONTEXTMANAGER']._serialized_start=1761
+  _globals['_CONTEXTMANAGER']._serialized_end=2133
 # @@protoc_insertion_point(module_scope)

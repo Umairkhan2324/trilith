@@ -1,14 +1,14 @@
-import sqlite3
-import pytest
 import time
-from core.proto.trilith_pb2 import ContextItem, Tier, Scope
-from core.sqlite_backend import SQLiteBackend
-from core.semantic import SemanticStore
-from core.procedural import ProceduralStore
+
+from google.protobuf.timestamp_pb2 import Timestamp
+
 from core.episodic import EpisodicStore
 from core.privacy import PolicyEngine
-from core.governor import Governor
-from google.protobuf.timestamp_pb2 import Timestamp
+from core.procedural import ProceduralStore
+from core.proto.trilith_pb2 import ContextItem, Scope, Tier
+from core.semantic import SemanticStore
+from core.sqlite_backend import SQLiteBackend
+
 
 def create_item(item_id, tier, scope, content="Hello!", expires_s=None):
     created = Timestamp()

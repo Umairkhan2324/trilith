@@ -11,6 +11,13 @@ enum Tier {
   EPISODIC = 3;
 }
 
+// Scope is the *visibility kind* of an item within its tenant.
+// It is not an identity — tenant_id/owner_id/session_id carry identity.
+//
+//   GLOBAL  : cross-tenant system knowledge, readable by every principal
+//   TENANT  : readable by any principal of the owning tenant
+//   USER    : readable only by a principal with the same tenant_id + owner_id
+//   SESSION : readable only by a principal with the same tenant_id + session_id
 enum Scope {
   SCOPE_UNSPECIFIED = 0;
   USER = 1;
@@ -28,10 +35,28 @@ message ContextItem {
   google.protobuf.Timestamp created_at = 6;
   optional google.protobuf.Timestamp expires_at = 7;
   repeated float embedding = 8;
+
+  // Identity. tenant_id is the hard isolation boundary; empty means "default".
+  string tenant_id = 9;
+  string owner_id = 10;
+  string session_id = 11;
+}
+
+// Principal identifies the caller of an operation. When API-key auth is
+// enabled, tenant_id (and owner_id, if the key pins one) are taken from the
+// key and any client-supplied values are ignored.
+message Principal {
+  string tenant_id = 1;
+  string owner_id = 2;
+  string session_id = 3;
+  // Legacy v0.1 field: a bare Scope name ("USER", "GLOBAL", ...). Honoured
+  // only when no identity fields are set. Deprecated — use identity instead.
+  string requester_scope = 4;
 }
 
 message WriteRequest {
   ContextItem item = 1;
+  Principal principal = 2;
 }
 
 message WriteAck {
@@ -43,7 +68,8 @@ message QueryRequest {
   Tier tier = 1;
   string filter = 2;
   int32 budget_tokens = 3;
-  string scope = 4;
+  string scope = 4;  // legacy; prefer principal
+  Principal principal = 5;
 }
 
 message QueryResponse {
@@ -53,7 +79,8 @@ message QueryResponse {
 message AssembleRequest {
   string task_description = 1;
   int32 budget_tokens = 2;
-  string requester_scope = 3;
+  string requester_scope = 3;  // legacy; prefer principal
+  Principal principal = 4;
 }
 
 message ExcludedItem {
@@ -65,15 +92,41 @@ message AssembledContext {
   repeated ContextItem items = 1;
   int32 tokens_used = 2;
   repeated ExcludedItem excluded_items = 3;
+  // Number of candidates dropped by the pre-rank candidate cap. Non-zero means
+  // the store holds more matching items than the cap allowed us to consider.
+  int32 candidates_truncated = 4;
 }
 
 message ForgetRequest {
-  string scope = 1;
+  string scope = 1;  // legacy; prefer principal
+  Principal principal = 2;
 }
 
 message ForgetAck {
   bool success = 1;
   string message = 2;
+  int32 deleted_count = 3;
+}
+
+message FoldRequest {
+  string subtask_id = 1;
+  Principal principal = 2;
+}
+
+message FoldResponse {
+  bool success = 1;
+  string message = 2;
+  ContextItem item = 3;
+  int32 folded_count = 4;
+}
+
+message PurgeExpiredRequest {
+  Principal principal = 1;
+}
+
+message PurgeExpiredResponse {
+  bool success = 1;
+  int32 deleted_count = 2;
 }
 
 service ContextManager {
@@ -81,4 +134,6 @@ service ContextManager {
   rpc Query(QueryRequest) returns (QueryResponse);
   rpc Assemble(AssembleRequest) returns (AssembledContext);
   rpc Forget(ForgetRequest) returns (ForgetAck);
+  rpc Fold(FoldRequest) returns (FoldResponse);
+  rpc PurgeExpired(PurgeExpiredRequest) returns (PurgeExpiredResponse);
 }

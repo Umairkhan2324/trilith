@@ -1,55 +1,105 @@
 from typing import List, Optional
-from core.proto.trilith_pb2 import ContextItem, Tier, Scope
-from core.sqlite_backend import SQLiteBackend
 
-class EpisodicStore:
-    def __init__(self, backend=None):
-        self.backend = backend or SQLiteBackend()
-        self.tier = Tier.EPISODIC
+from core.identity import Principal
+from core.proto.trilith_pb2 import Scope, Tier
+from core.store_base import BaseStore, parse_scope
 
-    def write(self, item: ContextItem) -> bool:
-        # Guarantee item's tier is EPISODIC
-        item.tier = Tier.EPISODIC
-        return self.backend.save(item)
 
-    def query(self, filter: str = "", budget_tokens: int = 0, scope: str = "") -> List[ContextItem]:
-        """Query episodic store.
+class EpisodicStore(BaseStore):
+    """Scoped events. Never cross a tenant boundary, and physically forgettable."""
 
-        A scope MUST be provided to query episodic store. No accidental cross-tenant reads.
+    tier = Tier.EPISODIC
+    # Episodic events stay inside their tenant even when marked GLOBAL.
+    include_global = False
+
+    def query(
+        self,
+        filter: str = "",
+        budget_tokens: int = 0,
+        scope: str = "",
+        principal: Optional[Principal] = None,
+        limit: Optional[int] = None,
+    ):
+        """Query episodic events.
+
+        With a principal, reads are confined to that principal's tenant, which
+        is the isolation the old scope-string rule was approximating.
+
+        Without one, the v0.1 guard still applies: a bare scope string is the
+        only thing standing between the caller and every tenant's events, so a
+        missing or too-broad scope is rejected rather than silently widened.
         """
+        if principal is not None:
+            return self.query_for(principal, limit=limit)
+
         if not scope:
-            raise ValueError("Episodic query must specify a valid scope to prevent cross-tenant exposure.")
-            
-        try:
-            scope_enum = Scope.Value(scope.upper())
-        except ValueError:
-            # If the scope is invalid, return empty list
+            raise ValueError(
+                "Episodic query must specify a valid scope to prevent cross-tenant exposure."
+            )
+
+        scope_enum = parse_scope(scope)
+        if scope_enum is None:
+            # Unrecognised scope name: nothing can match it.
             return []
-            
-        # Scope cannot be UNSPECIFIED or GLOBAL for episodic memory queries to ensure isolated tenants
+
         if scope_enum in (Scope.SCOPE_UNSPECIFIED, Scope.GLOBAL):
-            raise KeyError("Episodic query cannot use UNSPECIFIED or GLOBAL scope to avoid cross-tenant reads.")
+            raise KeyError(
+                "Episodic query cannot use UNSPECIFIED or GLOBAL scope to avoid cross-tenant reads."
+            )
 
-        return self.backend.query(Tier.EPISODIC, scope=scope_enum)
+        return self.backend.query(Tier.EPISODIC, scope=scope_enum, limit=limit)
 
-    def forget(self, scope: str, notify_stores: List = []) -> int:
-        """Deletes all items with matching scope from EpisodicStore.
+    def forget(
+        self,
+        scope: str,
+        notify_stores: Optional[List] = None,
+        principal: Optional[Principal] = None,
+    ) -> int:
+        """Physically delete every item of `scope`, cascading across tiers.
 
-        Also notifies Semantic/Procedural stores to purge anything with the matching scope.
+        With a principal the purge is confined to that tenant — and further to
+        the caller's own `owner_id`/`session_id` when the scope is USER or
+        SESSION, so "forget me" cannot become "forget everyone".
+
         Returns:
-            Number of items deleted from this EpisodicStore database.
+            Number of episodic items deleted.
         """
-        try:
-            scope_enum = Scope.Value(scope.upper())
-        except ValueError:
+        notify_stores = notify_stores or []
+
+        scope_enum = parse_scope(scope)
+        if scope_enum is None:
             return 0
 
-        # Delete from other stores if they are passed in
-        for store in notify_stores:
-            if hasattr(store, "backend") and hasattr(store.backend, "delete_by_scope"):
-                tier_val = getattr(store, "tier", None)
-                store.backend.delete_by_scope(scope_enum, tier=tier_val)
+        tenant_id = principal.tenant_id if principal else None
+        owner_id = ""
+        session_id = ""
+        if principal is not None:
+            if scope_enum == Scope.USER:
+                owner_id = principal.owner_id
+            elif scope_enum == Scope.SESSION:
+                session_id = principal.session_id
 
-        # Delete from local backend
-        count = self.backend.delete_by_scope(scope_enum, tier=self.tier)
-        return count
+        # Cascade to the other tiers first, then purge our own.
+        for store in notify_stores:
+            backend = getattr(store, "backend", None)
+            if backend is None or not hasattr(backend, "delete_by_scope"):
+                continue
+            backend.delete_by_scope(
+                scope_enum,
+                tier=getattr(store, "tier", None),
+                tenant_id=tenant_id,
+                owner_id=owner_id,
+                session_id=session_id,
+            )
+
+        return self.backend.delete_by_scope(
+            scope_enum,
+            tier=self.tier,
+            tenant_id=tenant_id,
+            owner_id=owner_id,
+            session_id=session_id,
+        )
+
+    def forget_tenant(self, tenant_id: str) -> int:
+        """Erase an entire tenant across all tiers. Used for offboarding."""
+        return self.backend.delete_tenant(tenant_id)
