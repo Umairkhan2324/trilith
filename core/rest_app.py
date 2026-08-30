@@ -97,6 +97,75 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
             "auth_enabled": rt.auth.enabled,
         }
 
+    @app.get("/v1/dashboard")
+    def dashboard(
+        authorization: Optional[str] = Header(default=None),
+        tenant_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        limit: int = 12,
+    ):
+        """Tenant-scoped operational snapshot for human-facing consoles."""
+        try:
+            principal = rt.auth.resolve(
+                authorization,
+                tenant_id=tenant_id or "",
+                owner_id=owner_id or "",
+                session_id=session_id or "",
+            )
+        except AuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+        safe_limit = max(1, min(limit, 50))
+        tiers = (
+            ("SEMANTIC", Tier.SEMANTIC, rt.semantic.include_global),
+            ("PROCEDURAL", Tier.PROCEDURAL, rt.procedural.include_global),
+            ("EPISODIC", Tier.EPISODIC, rt.episodic.include_global),
+        )
+        counts = {}
+        recent = []
+        for name, tier, include_global in tiers:
+            counts[name] = rt.backend.count(
+                tier,
+                tenant_id=principal.tenant_id,
+                include_global=include_global,
+            )
+            items = rt.backend.query(
+                tier,
+                tenant_id=principal.tenant_id,
+                include_global=include_global,
+                limit=safe_limit,
+            )
+            recent.extend(
+                {
+                    "id": item.id,
+                    "tier": name,
+                    "scope": Scope.Name(item.scope),
+                    "content": item.content,
+                    "provenance": item.provenance,
+                    "created_at": item.created_at.ToJsonString(),
+                    "owner_id": item.owner_id,
+                    "session_id": item.session_id,
+                }
+                for item in items
+            )
+
+        recent.sort(key=lambda item: item["created_at"], reverse=True)
+        return {
+            "service": "trilith-core",
+            "version": "0.2.0",
+            "status": "operational",
+            "auth_enabled": rt.auth.enabled,
+            "identity": {
+                "tenant_id": principal.tenant_id,
+                "owner_id": principal.owner_id,
+                "session_id": principal.session_id,
+            },
+            "counts": counts,
+            "total_items": sum(counts.values()),
+            "recent_items": recent[:safe_limit],
+        }
+
     @app.post("/v1/write")
     def write(body: WriteBody, authorization: Optional[str] = Header(default=None)):
         principal = principal_for(body, authorization)
@@ -143,8 +212,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
             ],
             "tokens_used": assembled.tokens_used,
             "excluded_items": [
-                {"id": ex.item.id, "reason": ex.reason}
-                for ex in assembled.excluded_items
+                {"id": ex.item.id, "reason": ex.reason} for ex in assembled.excluded_items
             ],
             "candidates_truncated": assembled.candidates_truncated,
             "tenant_id": principal.tenant_id,

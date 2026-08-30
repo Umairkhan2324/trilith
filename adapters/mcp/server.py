@@ -163,9 +163,7 @@ def forget(
         session_id: With scope SESSION, limits the purge to this session
     """
     try:
-        count = forget_scope(
-            rt, scope, principal=_principal(tenant_id, owner_id, session_id)
-        )
+        count = forget_scope(rt, scope, principal=_principal(tenant_id, owner_id, session_id))
         return (
             f"Purged {count} episodic items of scope '{scope}' in tenant "
             f"'{tenant_id}', cascading to other tiers."

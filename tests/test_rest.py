@@ -61,8 +61,12 @@ def test_zero_config_quickstart_round_trips(client):
     """
     client.post(
         "/v1/write",
-        json={"id": "f1", "tier": "SEMANTIC", "scope": "TENANT",
-              "content": "Alice prefers Python."},
+        json={
+            "id": "f1",
+            "tier": "SEMANTIC",
+            "scope": "TENANT",
+            "content": "Alice prefers Python.",
+        },
     )
     ctx = client.post("/v1/assemble", json={"task": "What does Alice prefer?"}).json()
     assert [i["id"] for i in ctx["items"]] == ["f1"]
@@ -72,6 +76,47 @@ def test_whoami_in_open_mode(client):
     body = client.get("/v1/whoami").json()
     assert body["tenant_id"] == "default"
     assert body["auth_enabled"] is False
+
+
+def test_dashboard_reports_scoped_counts_and_recent_items(client):
+    for item_id, tier in (("fact", "SEMANTIC"), ("event", "EPISODIC")):
+        client.post(
+            "/v1/write",
+            json={
+                "id": item_id,
+                "tier": tier,
+                "scope": "TENANT",
+                "content": f"{tier.lower()} context",
+                "provenance": "dashboard-test",
+            },
+        )
+
+    response = client.get("/v1/dashboard")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "operational"
+    assert body["counts"] == {"SEMANTIC": 1, "PROCEDURAL": 0, "EPISODIC": 1}
+    assert body["total_items"] == 2
+    assert {item["id"] for item in body["recent_items"]} == {"fact", "event"}
+
+
+def test_dashboard_respects_api_key_tenant(client, rt):
+    acme_key, _ = rt.keys.create(tenant_id="acme")
+    globex_key, _ = rt.keys.create(tenant_id="globex")
+    client.post(
+        "/v1/write",
+        json={
+            "id": "acme-only",
+            "tier": "SEMANTIC",
+            "scope": "TENANT",
+            "content": "secret",
+        },
+        headers=_auth(acme_key),
+    )
+
+    body = client.get("/v1/dashboard", headers=_auth(globex_key)).json()
+    assert body["identity"]["tenant_id"] == "globex"
+    assert body["total_items"] == 0
 
 
 # --- Enforced mode ---
@@ -124,8 +169,12 @@ def test_two_tenants_do_not_see_each_other(client, rt):
     for key, name in ((acme_key, "acme"), (globex_key, "globex")):
         client.post(
             "/v1/write",
-            json={"id": f"{name}-1", "tier": "SEMANTIC", "scope": "TENANT",
-                  "content": f"{name} roadmap"},
+            json={
+                "id": f"{name}-1",
+                "tier": "SEMANTIC",
+                "scope": "TENANT",
+                "content": f"{name} roadmap",
+            },
             headers=_auth(key),
         )
 
@@ -148,8 +197,7 @@ def test_fold_endpoint(client):
     for n in (1, 2):
         client.post(
             "/v1/write",
-            json={"id": f"s{n}", "tier": "PROCEDURAL", "scope": "TENANT",
-                  "content": f"step {n}"},
+            json={"id": f"s{n}", "tier": "PROCEDURAL", "scope": "TENANT", "content": f"step {n}"},
         )
     # Steps must share a subtask to be foldable; write them through the store.
     r = client.post("/v1/fold", json={"subtask_id": "nope"})
@@ -167,8 +215,12 @@ def test_fold_endpoint_collapses_steps(client, rt):
     ts.GetCurrentTime()
     for n in (1, 2, 3):
         item = ContextItem(
-            id=f"step-{n}", tier=Tier.PROCEDURAL, scope=Scope.TENANT,
-            content=f"did thing {n}", created_at=ts, tenant_id="default",
+            id=f"step-{n}",
+            tier=Tier.PROCEDURAL,
+            scope=Scope.TENANT,
+            content=f"did thing {n}",
+            created_at=ts,
+            tenant_id="default",
         )
         rt.procedural.write(item, subtask_id="deploy-9")
 
@@ -191,8 +243,12 @@ def test_purge_expired_endpoint(client, rt):
     ts = Timestamp()
     ts.GetCurrentTime()
     item = ContextItem(
-        id="old", tier=Tier.SEMANTIC, scope=Scope.TENANT, content="stale",
-        created_at=ts, tenant_id="default",
+        id="old",
+        tier=Tier.SEMANTIC,
+        scope=Scope.TENANT,
+        content="stale",
+        created_at=ts,
+        tenant_id="default",
     )
     item.expires_at.CopyFrom(Timestamp(seconds=int(time.time() - 60)))
     rt.semantic.write(item)
@@ -208,8 +264,12 @@ def test_forget_is_confined_to_the_callers_tenant(client, rt):
     for key, name in ((acme_key, "acme"), (globex_key, "globex")):
         client.post(
             "/v1/write",
-            json={"id": f"{name}-1", "tier": "EPISODIC", "scope": "TENANT",
-                  "content": f"{name} event"},
+            json={
+                "id": f"{name}-1",
+                "tier": "EPISODIC",
+                "scope": "TENANT",
+                "content": f"{name} event",
+            },
             headers=_auth(key),
         )
 

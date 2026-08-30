@@ -38,6 +38,7 @@ ME = Principal(tenant_id="default")
 # Helpers
 # ──────────────────────────────────────────────────────────
 
+
 def make_item(item_id: str, content: str, scope: Scope = Scope.TENANT) -> ContextItem:
     ts = Timestamp()
     ts.GetCurrentTime()
@@ -55,6 +56,7 @@ def make_item(item_id: str, content: str, scope: Scope = Scope.TENANT) -> Contex
 # Turn 1 — Agent learns and stores facts
 # ──────────────────────────────────────────────────────────
 
+
 def turn_1():
     print("=" * 60)
     print("TURN 1 - Writing user facts to Semantic tier")
@@ -63,9 +65,9 @@ def turn_1():
     rt = build_runtime(DB_PATH)
 
     facts = [
-        ("fact-name",  "The user's name is Alice."),
-        ("fact-lang",  "Alice prefers Python as her primary language."),
-        ("fact-proj",  "Alice is currently working on a distributed tracing tool."),
+        ("fact-name", "The user's name is Alice."),
+        ("fact-lang", "Alice prefers Python as her primary language."),
+        ("fact-proj", "Alice is currently working on a distributed tracing tool."),
         ("fact-skill", "Alice has 7 years of backend engineering experience."),
     ]
 
@@ -79,6 +81,7 @@ def turn_1():
 # ──────────────────────────────────────────────────────────
 # Turn 2 — Fresh runtime retrieves facts via assemble()
 # ──────────────────────────────────────────────────────────
+
 
 def turn_2():
     print("=" * 60)

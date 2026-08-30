@@ -13,10 +13,10 @@ from core.proto.trilith_pb2 import (
 def test_context_item_serialization():
     created = Timestamp()
     created.GetCurrentTime()
-    
+
     expires = Timestamp()
     expires.FromSeconds(int(created.seconds) + 3600)
-    
+
     item = ContextItem(
         id="test-1",
         tier=Tier.SEMANTIC,
@@ -25,9 +25,9 @@ def test_context_item_serialization():
         provenance="test_provenance",
         created_at=created,
         expires_at=expires,
-        embedding=[0.1, 0.2, 0.3]
+        embedding=[0.1, 0.2, 0.3],
     )
-    
+
     assert item.id == "test-1"
     assert item.tier == Tier.SEMANTIC
     assert item.content == "This is semantic memory content."
@@ -37,26 +37,20 @@ def test_context_item_serialization():
     assert item.expires_at.seconds == expires.seconds
     assert list(item.embedding) == pytest.approx([0.1, 0.2, 0.3])
 
+
 def test_assembled_context_serialization():
     item = ContextItem(
         id="test-2",
         tier=Tier.EPISODIC,
         content="This is episodic memory content.",
         scope=Scope.SESSION,
-        provenance="test"
+        provenance="test",
     )
-    
-    excluded = ExcludedItem(
-        item=item,
-        reason="Exceeded token budget"
-    )
-    
-    assembled = AssembledContext(
-        items=[item],
-        tokens_used=150,
-        excluded_items=[excluded]
-    )
-    
+
+    excluded = ExcludedItem(item=item, reason="Exceeded token budget")
+
+    assembled = AssembledContext(items=[item], tokens_used=150, excluded_items=[excluded])
+
     assert len(assembled.items) == 1
     assert assembled.items[0].id == "test-2"
     assert assembled.tokens_used == 150

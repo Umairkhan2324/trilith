@@ -33,8 +33,15 @@ def _make_v01_db(path: str):
         "(id, tier, content, scope, provenance, created_at_sec, created_at_nanosec, "
         " expires_at_sec, expires_at_nanosec, embedding, subtask_id) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)",
-        ("legacy-1", int(Tier.SEMANTIC), "Alice prefers Python", int(Scope.USER),
-         "v0.1", 1_700_000_000, 0),
+        (
+            "legacy-1",
+            int(Tier.SEMANTIC),
+            "Alice prefers Python",
+            int(Scope.USER),
+            "v0.1",
+            1_700_000_000,
+            0,
+        ),
     )
     conn.commit()
     conn.close()

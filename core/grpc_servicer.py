@@ -70,9 +70,7 @@ class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
             return trilith_pb2.QueryResponse()
 
     def Assemble(self, request, context):
-        principal = self._principal(
-            request, context, legacy_scope=request.requester_scope
-        )
+        principal = self._principal(request, context, legacy_scope=request.requester_scope)
         return self._rt.governor.assemble(
             task=request.task_description,
             budget=request.budget_tokens,
@@ -98,9 +96,7 @@ class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
             context.set_details("FoldRequest.subtask_id is required")
             return trilith_pb2.FoldResponse(success=False, message="missing subtask_id")
         principal = self._principal(request, context)
-        summary, folded_count = fold_subtask(
-            self._rt, request.subtask_id, principal=principal
-        )
+        summary, folded_count = fold_subtask(self._rt, request.subtask_id, principal=principal)
         if summary is None:
             return trilith_pb2.FoldResponse(
                 success=False,

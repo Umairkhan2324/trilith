@@ -141,8 +141,12 @@ def test_expired_items_are_physically_deleted(rt):
 
 def test_purge_expired_is_tenant_scoped(rt):
     past = time.time() - 60
-    write_item(rt, make_item("a", content="stale", expires_s=past), principal=Principal(tenant_id="acme"))
-    write_item(rt, make_item("g", content="stale", expires_s=past), principal=Principal(tenant_id="globex"))
+    write_item(
+        rt, make_item("a", content="stale", expires_s=past), principal=Principal(tenant_id="acme")
+    )
+    write_item(
+        rt, make_item("g", content="stale", expires_s=past), principal=Principal(tenant_id="globex")
+    )
 
     assert purge_expired(rt, principal=Principal(tenant_id="acme")) == 1
     assert len(rt.backend.query(Tier.SEMANTIC, tenant_id="globex")) == 1

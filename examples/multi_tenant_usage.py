@@ -71,9 +71,12 @@ def main() -> None:
     remember(rt, bob, "bob-pref", "Bob prefers Go for billing work.", Scope.USER)
     # Per-session episodic event.
     remember(
-        rt, alice_session, "sess-evt",
+        rt,
+        alice_session,
+        "sess-evt",
         "Alice opened the billing migration checklist.",
-        Scope.SESSION, Tier.EPISODIC,
+        Scope.SESSION,
+        Tier.EPISODIC,
     )
     # The other customer's data.
     remember(rt, globex, "globex-plan", "Globex is migrating billing to Adyen.")

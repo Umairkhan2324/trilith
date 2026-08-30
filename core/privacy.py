@@ -20,11 +20,11 @@ class PolicyEngine:
     def __init__(self):
         # Regex PII patterns
         # 1. Email pattern
-        self.email_regex = re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+')
+        self.email_regex = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
         # 2. Phone numbers (standard formats)
-        self.phone_regex = re.compile(r'\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b')
+        self.phone_regex = re.compile(r"\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b")
         # 3. National ID (e.g. US SSN format xxx-xx-xxxx)
-        self.national_id_regex = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
+        self.national_id_regex = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 
     def redact(self, text: str) -> str:
         """Helper to redact PII in place using regular expressions."""

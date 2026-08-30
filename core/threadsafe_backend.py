@@ -52,9 +52,7 @@ class ThreadSafeBackend:
         include_global: bool = False,
     ) -> int:
         with self._lock:
-            return self._backend.count(
-                tier, tenant_id=tenant_id, include_global=include_global
-            )
+            return self._backend.count(tier, tenant_id=tenant_id, include_global=include_global)
 
     def delete(self, item_id: str, tenant_id: Optional[str] = None) -> bool:
         with self._lock:

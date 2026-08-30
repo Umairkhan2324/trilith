@@ -85,9 +85,7 @@ def test_grpc_tenant_isolation(server):
     )
 
     seen = stub.Assemble(
-        trilith_pb2.AssembleRequest(
-            task_description="roadmap", budget_tokens=500, principal=acme
-        )
+        trilith_pb2.AssembleRequest(task_description="roadmap", budget_tokens=500, principal=acme)
     )
     assert [i.id for i in seen.items] == ["a1"]
 

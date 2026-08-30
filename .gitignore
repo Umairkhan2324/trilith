@@ -39,6 +39,7 @@ Thumbs.db
 
 # Node / TypeScript
 node_modules/
+.next/
 sdks/typescript/dist/
 npm-debug.log*
 

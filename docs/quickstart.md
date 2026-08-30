@@ -254,6 +254,7 @@ trilith serve --host 127.0.0.1 --port 8080 --grpc-port 50051
 |---------|---------|
 | REST | `http://127.0.0.1:8080` |
 | gRPC | `127.0.0.1:50051` |
+| Observatory | `http://localhost:3000` |
 
 ```bash
 # Write
@@ -293,6 +294,26 @@ ctx = requests.post(f"{BASE}/v1/assemble", json={
 memory = "\n".join(i["content"] for i in ctx["items"])
 prompt = f"Context:\n{memory}\n\nUser: What does Alice prefer?"
 ```
+
+### Observe Trilith in the dashboard
+
+With `trilith serve` still running, start the optional Next.js console in a
+second terminal:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The console uses `GET /v1/dashboard` for scoped
+inventory and recent activity, and `POST /v1/assemble` for its interactive
+workbench. If port 3000 belongs to another application, run
+`npm run dev -- -p 3001` and open `http://localhost:3001` instead.
+
+The badge at the top distinguishes live core data from demo telemetry. See the
+[dashboard guide](../dashboard/README.md) for proxy configuration, port diagnosis,
+production builds, and the current authentication limitation.
 
 ---
 

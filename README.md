@@ -182,6 +182,24 @@ docker build -t trilith .
 docker run -e TRILITH_REQUIRE_AUTH=1 -p 8080:8080 -p 50051:50051 -v trilith_data:/data trilith
 ```
 
+### Observatory dashboard
+
+The optional Next.js console shows the tenant's memory tiers, recent context,
+runtime health, and a live assembly workbench:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000` while `trilith serve` is running. See
+[`dashboard/README.md`](dashboard/README.md) for configuration.
+
+If another application already owns port 3000, use `npm run dev -- -p 3001`.
+The dashboard displays **Demo telemetry** when it cannot reach Trilith Core and
+**Core connected** when its data is live.
+
 ## Call it (REST)
 
 ```bash
@@ -204,6 +222,7 @@ With auth on, add `-H "Authorization: Bearer tri_..."` — the key decides the t
 | `POST /v1/fold` | Collapse a sub-task's procedural steps into one summary |
 | `POST /v1/purge-expired` | Reap items past their TTL |
 | `GET /v1/whoami` | Which identity did Trilith resolve you as? |
+| `GET /v1/dashboard` | Tenant-scoped counts and recent activity for dashboards |
 | `GET /healthz` | Liveness + whether auth is on |
 
 ## Call it (gRPC)
@@ -221,7 +240,8 @@ Trilith = memory + governance — not an agent framework, not an LLM.
 
 ## Docs
 
-- [Quickstart](docs/quickstart.md) — imports, agent loop, REST/gRPC
+- [Quickstart](docs/quickstart.md) — imports, agent loop, REST/gRPC, and dashboard
+- [Observatory dashboard](dashboard/README.md) — live console, configuration, and ports
 - [**Deployment & multi-tenancy**](docs/deployment.md) — tenants, API keys, Docker, migrating from v0.1
 - [**Adapters (plug-and-play)**](docs/adapters.md) — LangChain, OpenAI Agents, Claude, TypeScript
 - [Architecture](docs/architecture.md)

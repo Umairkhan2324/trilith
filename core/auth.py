@@ -79,9 +79,7 @@ class ApiKeyStore:
                 revoked INTEGER NOT NULL DEFAULT 0
             )
         """)
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)"
-        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)")
         self._conn.commit()
 
     def create(
@@ -139,8 +137,7 @@ class ApiKeyStore:
 
     def list(self, tenant_id: Optional[str] = None) -> List[ApiKeyRecord]:
         query = (
-            "SELECT fingerprint, tenant_id, owner_id, name, created_at, revoked "
-            "FROM api_keys"
+            "SELECT fingerprint, tenant_id, owner_id, name, created_at, revoked " "FROM api_keys"
         )
         params: list = []
         if tenant_id:
@@ -165,8 +162,7 @@ class ApiKeyStore:
     def revoke(self, fingerprint_prefix: str) -> int:
         cursor = self._conn.cursor()
         cursor.execute(
-            "UPDATE api_keys SET revoked = 1 "
-            "WHERE fingerprint LIKE ? AND revoked = 0",
+            "UPDATE api_keys SET revoked = 1 " "WHERE fingerprint LIKE ? AND revoked = 0",
             (f"{fingerprint_prefix}%",),
         )
         self._conn.commit()
@@ -199,7 +195,7 @@ def parse_authorization(header: Optional[str]) -> Optional[str]:
     lowered = value.lower()
     for prefix in ("bearer ", "apikey ", "token "):
         if lowered.startswith(prefix):
-            return value[len(prefix):].strip() or None
+            return value[len(prefix) :].strip() or None
     return value or None
 
 
@@ -210,7 +206,10 @@ class AuthEnforcer:
         self._store = store
         if require_auth is None:
             require_auth = os.environ.get("TRILITH_REQUIRE_AUTH", "").lower() in (
-                "1", "true", "yes", "on",
+                "1",
+                "true",
+                "yes",
+                "on",
             )
         self._require_auth = bool(require_auth)
 

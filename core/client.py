@@ -131,9 +131,7 @@ class TrilithClient:
 
     def fold(self, subtask_id: str, **identity: Any) -> dict[str, Any]:
         """Collapse a procedural sub-task's steps into a single summary item."""
-        return self._post(
-            "/v1/fold", {"subtask_id": subtask_id, **self._identity(identity)}
-        )
+        return self._post("/v1/fold", {"subtask_id": subtask_id, **self._identity(identity)})
 
     def purge_expired(self, **identity: Any) -> dict[str, Any]:
         """Physically delete items past their TTL."""
@@ -147,8 +145,6 @@ class TrilithClient:
         **identity: Any,
     ) -> str:
         """Ready-to-inject bullet list for LLM prompts."""
-        ctx = self.assemble(
-            task, budget=budget, requester_scope=requester_scope, **identity
-        )
+        ctx = self.assemble(task, budget=budget, requester_scope=requester_scope, **identity)
         items = ctx.get("items") or []
         return "\n".join(f"- {i.get('content', '')}" for i in items)

@@ -44,7 +44,9 @@ def main():
                 f.write(content)
             print("Successfully patched absolute import to relative import in trilith_pb2_grpc.py.")
         else:
-            print("Import statement standard replacement not found (already relative or different?).")
+            print(
+                "Import statement standard replacement not found (already relative or different?)."
+            )
 
 
 if __name__ == "__main__":

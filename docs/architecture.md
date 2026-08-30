@@ -204,7 +204,13 @@ never reach this stage at all.
 
 - **`proto/trilith.proto`** is the single source of truth for types and operations. Any language with `protoc` support can compile native bindings.
 - **REST gateway** on port **8080** — `/v1/write`, `/v1/assemble`, `/v1/forget`, `/v1/fold`,
-  `/v1/purge-expired`, `/v1/whoami`, `/healthz`. Usable with `curl`, `fetch`, or any HTTP client.
+  `/v1/purge-expired`, `/v1/whoami`, `/v1/dashboard`, `/healthz`. Usable with `curl`,
+  `fetch`, or any HTTP client. The dashboard snapshot is resolved through the same
+  `AuthEnforcer` and only returns rows visible to its principal.
+- **Observatory dashboard** on port **3000** during local development — a Next.js
+  console that proxies to REST, visualizes tier inventory and recent context, and
+  invokes the real assembly path through an interactive workbench. It does not read
+  SQLite directly.
 - **gRPC** (`trilith.ContextManager`) on port **50051** — `Write` / `Query` / `Assemble` /
   `Forget` / `Fold` / `PurgeExpired`; started by `trilith serve` alongside REST.
 - **MCP adapter** (`adapters/mcp/server.py`) exposes the same operations as Model Context
@@ -261,6 +267,9 @@ trilith/
 │   ├── multi_tenant_usage.py   # Two customers, several users, one DB
 │   └── mcp_chat.py             # Two-turn persistent memory demo
 ├── tests/                  # Pytest test suites
+├── dashboard/              # Next.js Observatory (:3000 in development)
+│   ├── app/                # Interface, responsive styles, assembly workbench
+│   └── next.config.ts      # /trilith/* proxy to the REST gateway
 ├── docs/
 │   ├── quickstart.md
 │   ├── deployment.md       # Tenancy, API keys, Docker, v0.1 migration

@@ -18,13 +18,14 @@ class Scorer(ABC):
         """
         pass
 
+
 class TFIDFScorer(Scorer):
     def score(self, candidates: List[ContextItem], task: str) -> List[float]:
         if not candidates:
             return []
 
         def tokenize(text: str) -> List[str]:
-            return re.findall(r'\w+', text.lower())
+            return re.findall(r"\w+", text.lower())
 
         task_tokens = tokenize(task)
         if not task_tokens:
@@ -89,7 +90,7 @@ class TFIDFScorer(Scorer):
             return []
 
         def tokenize(text: str) -> List[str]:
-            return re.findall(r'\w+', text.lower())
+            return re.findall(r"\w+", text.lower())
 
         docs = [tokenize(c.content) for c in candidates]
         num_docs = len(docs)
@@ -210,10 +211,7 @@ class Governor:
         return max(1, len(item.content) // 4)
 
     def rank(
-        self,
-        candidates: List[ContextItem],
-        task: str,
-        budget: int
+        self, candidates: List[ContextItem], task: str, budget: int
     ) -> List[Tuple[ContextItem, float]]:
         """Rank candidates according to task query and distraction penalty."""
         if not candidates:

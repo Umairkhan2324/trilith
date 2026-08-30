@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import sqlite3
 import time
@@ -82,23 +84,16 @@ class SQLiteBackend:
         added = []
         for column, sql_type in _TENANCY_COLUMNS.items():
             if column not in existing:
-                self._conn.execute(
-                    f"ALTER TABLE context_items ADD COLUMN {column} {sql_type}"
-                )
+                self._conn.execute(f"ALTER TABLE context_items ADD COLUMN {column} {sql_type}")
                 added.append(column)
 
         # Backfill: NULL/'' tenant is meaningless — everything lands in 'default'.
         self._conn.execute(
-            "UPDATE context_items SET tenant_id = ? "
-            "WHERE tenant_id IS NULL OR tenant_id = ''",
+            "UPDATE context_items SET tenant_id = ? " "WHERE tenant_id IS NULL OR tenant_id = ''",
             (DEFAULT_TENANT,),
         )
-        self._conn.execute(
-            "UPDATE context_items SET owner_id = '' WHERE owner_id IS NULL"
-        )
-        self._conn.execute(
-            "UPDATE context_items SET session_id = '' WHERE session_id IS NULL"
-        )
+        self._conn.execute("UPDATE context_items SET owner_id = '' WHERE owner_id IS NULL")
+        self._conn.execute("UPDATE context_items SET session_id = '' WHERE session_id IS NULL")
         self._conn.commit()
         return added
 
@@ -135,7 +130,7 @@ class SQLiteBackend:
                 normalize_tenant(item.tenant_id),
                 item.owner_id or "",
                 item.session_id or "",
-            )
+            ),
         )
         self._conn.commit()
         return True
@@ -203,7 +198,9 @@ class SQLiteBackend:
         rows = cursor.fetchall()
         return [self._row_to_item(row) for row in rows]
 
-    def count(self, tier: Tier, tenant_id: Optional[str] = None, include_global: bool = False) -> int:
+    def count(
+        self, tier: Tier, tenant_id: Optional[str] = None, include_global: bool = False
+    ) -> int:
         query_str = "SELECT COUNT(*) FROM context_items WHERE tier = ?"
         params: list = [int(tier)]
         if tenant_id is not None:
@@ -274,8 +271,7 @@ class SQLiteBackend:
         """
         cutoff = int(now if now is not None else time.time())
         query_str = (
-            "DELETE FROM context_items "
-            "WHERE expires_at_sec IS NOT NULL AND expires_at_sec <= ?"
+            "DELETE FROM context_items " "WHERE expires_at_sec IS NOT NULL AND expires_at_sec <= ?"
         )
         params: list = [cutoff]
         if tenant_id is not None:
@@ -294,9 +290,19 @@ class SQLiteBackend:
 
     def _row_to_item(self, row) -> ContextItem:
         (
-            val_id, val_tier, val_content, val_scope, val_provenance,
-            c_sec, c_nano, e_sec, e_nano, val_emb,
-            val_tenant, val_owner, val_session,
+            val_id,
+            val_tier,
+            val_content,
+            val_scope,
+            val_provenance,
+            c_sec,
+            c_nano,
+            e_sec,
+            e_nano,
+            val_emb,
+            val_tenant,
+            val_owner,
+            val_session,
         ) = row
 
         created = Timestamp(seconds=c_sec, nanos=c_nano)
