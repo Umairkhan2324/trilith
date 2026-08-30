@@ -8,7 +8,14 @@ import grpc
 
 from core.auth import AuthError
 from core.identity import Principal
-from core.ops import fold_subtask, forget_scope, purge_expired, query_items, write_item
+from core.ops import (
+    assemble_context,
+    fold_subtask,
+    forget_scope,
+    purge_expired,
+    query_items,
+    write_item,
+)
 from core.proto import trilith_pb2, trilith_pb2_grpc
 from core.runtime import TrilithRuntime
 
@@ -71,7 +78,8 @@ class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
 
     def Assemble(self, request, context):
         principal = self._principal(request, context, legacy_scope=request.requester_scope)
-        return self._rt.governor.assemble(
+        return assemble_context(
+            self._rt,
             task=request.task_description,
             budget=request.budget_tokens,
             principal=principal,

@@ -78,7 +78,7 @@ Full guide → **[docs/deployment.md](docs/deployment.md)**
 - **Real multi-tenancy** — tenant/user/session identity, enforced in the query layer
 - **Optional API-key auth** — off by default, one command to turn on, no restart
 - **Plug-and-play adapters:** LangChain/LangGraph, OpenAI Agents, Claude tools, TypeScript SDK
-- Auditable `excluded_items` with reasons
+- Auditable `excluded_items` with reasons, and a live activity log of every operation
 - Physical `forget(scope)` across tiers, confined to the caller's tenant
 
 **Don’t expect (yet)**
@@ -184,8 +184,11 @@ docker run -e TRILITH_REQUIRE_AUTH=1 -p 8080:8080 -p 50051:50051 -v trilith_data
 
 ### Observatory dashboard
 
-The optional Next.js console shows the tenant's memory tiers, recent context,
-runtime health, and a live assembly workbench:
+The optional Next.js console is a working surface over the same REST API an
+agent uses — browse and search the store, write, edit, and delete items in
+place, fold a sub-task, forget a scope, run real assemblies and read the full
+inclusion/exclusion audit, switch the tenant/owner/session you act as, and watch
+a live feed of every operation on the instance:
 
 ```bash
 cd dashboard
@@ -197,8 +200,8 @@ Open `http://localhost:3000` while `trilith serve` is running. See
 [`dashboard/README.md`](dashboard/README.md) for configuration.
 
 If another application already owns port 3000, use `npm run dev -- -p 3001`.
-The dashboard displays **Demo telemetry** when it cannot reach Trilith Core and
-**Core connected** when its data is live.
+When it cannot reach the core it says so and tells you how to start it — it
+never draws placeholder numbers.
 
 ## Call it (REST)
 
@@ -221,6 +224,11 @@ With auth on, add `-H "Authorization: Bearer tri_..."` — the key decides the t
 | `POST /v1/forget` | Physical purge of a scope, within your tenant |
 | `POST /v1/fold` | Collapse a sub-task's procedural steps into one summary |
 | `POST /v1/purge-expired` | Reap items past their TTL |
+| `GET /v1/items` | Browse, search, filter, and page the tenant's stored context |
+| `PATCH /v1/items/{id}` | Edit one item in place |
+| `DELETE /v1/items/{id}` | Delete one item |
+| `GET /v1/subtasks` | Procedural sub-tasks holding steps — the fold candidates |
+| `GET /v1/events` | Recent operations on this instance, read with a cursor |
 | `GET /v1/whoami` | Which identity did Trilith resolve you as? |
 | `GET /v1/dashboard` | Tenant-scoped counts and recent activity for dashboards |
 | `GET /healthz` | Liveness + whether auth is on |

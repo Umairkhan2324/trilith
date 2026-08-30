@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from threading import Lock
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple
 
 from core.proto.trilith_pb2 import ContextItem, Scope, Tier
+from core.sqlite_backend import StoredItem
 
 
 class ThreadSafeBackend:
@@ -44,6 +45,39 @@ class ThreadSafeBackend:
                 include_global=include_global,
                 limit=limit,
             )
+
+    def stored(self, item_id: str, tenant_id: Optional[str] = None) -> Optional[StoredItem]:
+        with self._lock:
+            return self._backend.stored(item_id, tenant_id=tenant_id)
+
+    def search(
+        self,
+        tenant_id: Optional[str] = None,
+        global_tiers: Sequence[Tier] = (),
+        tiers: Optional[Sequence[Tier]] = None,
+        scope: Optional[Scope] = None,
+        text: str = "",
+        owner_id: str = "",
+        session_id: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[StoredItem], int]:
+        with self._lock:
+            return self._backend.search(
+                tenant_id=tenant_id,
+                global_tiers=global_tiers,
+                tiers=tiers,
+                scope=scope,
+                text=text,
+                owner_id=owner_id,
+                session_id=session_id,
+                limit=limit,
+                offset=offset,
+            )
+
+    def list_subtasks(self, tenant_id: Optional[str] = None) -> List[Tuple[str, int]]:
+        with self._lock:
+            return self._backend.list_subtasks(tenant_id=tenant_id)
 
     def count(
         self,

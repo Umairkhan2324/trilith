@@ -306,14 +306,26 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The console uses `GET /v1/dashboard` for scoped
-inventory and recent activity, and `POST /v1/assemble` for its interactive
-workbench. If port 3000 belongs to another application, run
+Open `http://localhost:3000`. If port 3000 belongs to another application, run
 `npm run dev -- -p 3001` and open `http://localhost:3001` instead.
 
-The badge at the top distinguishes live core data from demo telemetry. See the
-[dashboard guide](../dashboard/README.md) for proxy configuration, port diagnosis,
-production builds, and the current authentication limitation.
+The console is a working surface, not a poster of one. From it you can:
+
+- browse and search every stored item, with the token cost of each one and,
+  when the policy would refuse it, the reason;
+- write, edit, and delete items in place — the same `POST /v1/write`,
+  `PATCH /v1/items/{id}`, and `DELETE /v1/items/{id}` an agent would call;
+- run an assembly against a task and budget, and read the whole decision:
+  what fit, what the budget pushed out, what the policy refused;
+- fold a sub-task, forget a scope, and purge expired items;
+- switch the tenant, owner, and session it acts as, and watch the same store
+  answer a different caller; and
+- watch a live feed of everything the instance is doing, including writes made
+  by an agent over gRPC or REST while you have the page open.
+
+If the core is not running, the console says so instead of drawing plausible
+numbers. See the [dashboard guide](../dashboard/README.md) for proxy
+configuration, port diagnosis, and production builds.
 
 ---
 

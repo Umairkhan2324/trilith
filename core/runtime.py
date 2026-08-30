@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from core.auth import ApiKeyStore, AuthEnforcer
 from core.episodic import EpisodicStore
+from core.events import EventLog
 from core.governor import Governor
 from core.identity import Principal
 from core.privacy import PolicyEngine
@@ -26,6 +27,8 @@ class TrilithRuntime:
     db_path: str
     backend: ThreadSafeBackend
     auth: AuthEnforcer
+    # Recent operations, for consoles. In-memory and bounded — see core.events.
+    events: EventLog = field(default_factory=EventLog)
 
     @property
     def keys(self) -> ApiKeyStore:

@@ -1,6 +1,6 @@
 import re
 import time
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 from core.identity import Principal, normalize_tenant
 from core.proto.trilith_pb2 import ContextItem, Scope
@@ -41,6 +41,25 @@ class PolicyEngine:
             return Scope.Name(item.scope)
         except ValueError:
             return "SCOPE_UNSPECIFIED"
+
+    def explain(
+        self,
+        item: ContextItem,
+        principal: Principal,
+        now: Optional[float] = None,
+    ) -> Tuple[bool, str]:
+        """Would `principal` be allowed to see this item, and if not, why?
+
+        The same decision `filter` makes, exposed for consoles that need to
+        show *why* a stored row never reaches a prompt. Redaction is not part
+        of it — this answers admissibility, not presentation.
+        """
+        if item.HasField("expires_at"):
+            current_time = now if now is not None else time.time()
+            exp_time = item.expires_at.seconds + (item.expires_at.nanos / 1e9)
+            if current_time >= exp_time:
+                return False, f"Item expired at timestamp {item.expires_at.seconds}"
+        return self._check_visibility(item, principal)
 
     def _check_visibility(
         self,
@@ -139,15 +158,8 @@ class PolicyEngine:
         current_time = time.time()
 
         for item in candidates:
-            # 1. Expiry check
-            if item.HasField("expires_at"):
-                exp_time = item.expires_at.seconds + (item.expires_at.nanos / 1e9)
-                if current_time >= exp_time:
-                    denied.append((item, f"Item expired at timestamp {item.expires_at.seconds}"))
-                    continue
-
-            # 2 + 3. Tenant isolation, then scope-kind narrowing
-            visible, reason = self._check_visibility(item, principal)
+            # 1 + 2 + 3. Expiry, tenant isolation, then scope-kind narrowing.
+            visible, reason = self.explain(item, principal, now=current_time)
             if not visible:
                 denied.append((item, reason))
                 continue

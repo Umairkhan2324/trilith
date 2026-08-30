@@ -1,47 +1,385 @@
 "use client";
 
-import { Activity, ArrowUpRight, BookOpen, Braces, CircleCheck, Clock3, Database, Fingerprint, GitBranch, RefreshCw, Search, ShieldCheck, Sparkles } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Sprout } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityFeed } from "@/components/ActivityFeed";
+import { Disconnected } from "@/components/Disconnected";
+import { Explorer, type Filters } from "@/components/Explorer";
+import { IdentityPanel } from "@/components/IdentityPanel";
+import { Inspector, type InspectorMode } from "@/components/Inspector";
+import { OpsPanel } from "@/components/OpsPanel";
+import { TierStats } from "@/components/TierStats";
+import { useToast } from "@/components/Toaster";
+import { TopBar } from "@/components/TopBar";
+import { Workbench } from "@/components/Workbench";
+import { api } from "@/lib/api";
+import { classify, describeError, type Connection } from "@/lib/connection";
+import { SAMPLE_CONTEXT } from "@/lib/sample";
+import { useSession } from "@/lib/useSession";
+import type {
+  Assembly,
+  Draft,
+  Item,
+  ItemsPage,
+  Scope,
+  Snapshot,
+  Subtask,
+  Tier,
+  TrilithEvent,
+} from "@/lib/types";
 
-type Tier = "SEMANTIC" | "PROCEDURAL" | "EPISODIC";
-type Snapshot = { status: string; version: string; auth_enabled: boolean; identity: { tenant_id: string; owner_id: string; session_id: string }; counts: Record<Tier, number>; total_items: number; recent_items: Array<{ id: string; tier: Tier; scope: string; content: string; provenance: string; created_at: string }> };
-type Assembly = { items: Array<{ id: string; tier: Tier; scope: string; content: string }>; excluded_items: Array<{ id: string; reason: string }>; tokens_used: number; candidates_truncated: number };
+const POLL_MS = 2000;
+const FEED_LENGTH = 60;
 
-const demoSnapshot: Snapshot = {
-  status: "demo signal", version: "0.2.0", auth_enabled: true,
-  identity: { tenant_id: "acme-labs", owner_id: "maya", session_id: "research-42" },
-  counts: { SEMANTIC: 128, PROCEDURAL: 34, EPISODIC: 76 }, total_items: 238,
-  recent_items: [
-    { id: "sem-product-brief", tier: "SEMANTIC", scope: "TENANT", content: "North-star metric is successful context reuse per agent run.", provenance: "product-notes.md", created_at: new Date(Date.now() - 62000).toISOString() },
-    { id: "proc-eval-17", tier: "PROCEDURAL", scope: "SESSION", content: "Compared retrieval at budgets 200, 400, and 800 tokens.", provenance: "eval-agent", created_at: new Date(Date.now() - 242000).toISOString() },
-    { id: "epi-user-pref", tier: "EPISODIC", scope: "USER", content: "Maya prefers concise results with source provenance attached.", provenance: "assistant", created_at: new Date(Date.now() - 541000).toISOString() },
-    { id: "sem-policy", tier: "SEMANTIC", scope: "GLOBAL", content: "Never surface episodic memory across tenant boundaries.", provenance: "policy-engine", created_at: new Date(Date.now() - 1161000).toISOString() },
-  ],
-};
-const tiers = [
-  { key: "SEMANTIC" as Tier, label: "Semantic", note: "Durable facts", icon: BookOpen },
-  { key: "PROCEDURAL" as Tier, label: "Procedural", note: "Task knowledge", icon: GitBranch },
-  { key: "EPISODIC" as Tier, label: "Episodic", note: "Scoped events", icon: Clock3 },
-];
-function ago(value: string) { const seconds = Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 1000)); if (seconds < 60) return `${seconds}s ago`; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`; return `${Math.floor(seconds / 3600)}h ago`; }
+export default function Observatory() {
+  const [session, updateSession, sessionReady] = useSession();
+  const toast = useToast();
 
-export default function Dashboard() {
-  const [snapshot, setSnapshot] = useState<Snapshot>(demoSnapshot);
-  const [live, setLive] = useState(false); const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("What should the research agent remember about Maya?");
-  const [budget, setBudget] = useState(400); const [assembly, setAssembly] = useState<Assembly | null>(null); const [assembling, setAssembling] = useState(false);
-  const refresh = useCallback(async () => { setLoading(true); try { const response = await fetch("/trilith/v1/dashboard", { cache: "no-store" }); if (!response.ok) throw new Error(); setSnapshot(await response.json()); setLive(true); } catch { setSnapshot(demoSnapshot); setLive(false); } finally { setLoading(false); } }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
-  async function assemble(event: FormEvent) { event.preventDefault(); setAssembling(true); try { const response = await fetch("/trilith/v1/assemble", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task: query, budget }) }); if (!response.ok) throw new Error(); setAssembly(await response.json()); } catch { setAssembly({ items: demoSnapshot.recent_items.slice(0, 3).map(({ id, tier, scope, content }) => ({ id, tier, scope, content })), excluded_items: [{ id: "proc-eval-17", reason: "privacy: session scope mismatch" }], tokens_used: Math.min(budget, 173), candidates_truncated: 0 }); } finally { setAssembling(false); } }
-  const maxCount = useMemo(() => Math.max(...Object.values(snapshot.counts), 1), [snapshot]);
+  const [connection, setConnection] = useState<Connection>("connecting");
+  const [detail, setDetail] = useState("");
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [page, setPage] = useState<ItemsPage | null>(null);
+  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  const [tenants, setTenants] = useState<string[]>([]);
+  const [events, setEvents] = useState<TrilithEvent[]>([]);
+  const [assembly, setAssembly] = useState<Assembly | null>(null);
 
-  return <main>
-    <header className="topbar"><div className="brand"><span className="brand-mark"><span /><span /><span /></span><strong>TRILITH</strong><em>OBSERVATORY</em></div><div className="top-actions"><span className={`signal ${live ? "is-live" : ""}`}><i />{live ? "Core connected" : "Demo telemetry"}</span><button className="icon-button" onClick={refresh} aria-label="Refresh dashboard"><RefreshCw className={loading ? "spin" : ""} size={17} /></button><div className="avatar">MK</div></div></header>
-    <section className="hero reveal"><div><p className="eyebrow">Context operations / {snapshot.identity.tenant_id}</p><h1>See what your agents<br /><span>carry forward.</span></h1></div><div className="hero-aside"><p>Trilith keeps context useful, scoped, and small. This is the live path from stored memory to the next prompt.</p><div className="identity"><Fingerprint size={16} /><span>{snapshot.identity.owner_id || "all owners"}</span><b>/</b><span>{snapshot.identity.session_id || "all sessions"}</span></div></div></section>
-    <section className="metrics reveal delay-1"><article className="total-card"><div className="card-label"><Database size={15} /> Context inventory</div><div className="big-number">{snapshot.total_items.toLocaleString()}</div><div className="metric-foot"><span>visible items</span><span className="healthy"><CircleCheck size={13} /> governed</span></div></article>{tiers.map(({ key, label, note, icon: Icon }, index) => <article className={`tier-card tier-${index}`} key={key}><div className="tier-head"><span className="tier-icon"><Icon size={17} /></span><span>{String(index + 1).padStart(2, "0")}</span></div><strong>{snapshot.counts[key]}</strong><h2>{label}</h2><p>{note}</p><div className="bar"><i style={{ width: `${Math.max(8, snapshot.counts[key] / maxCount * 100)}%` }} /></div></article>)}</section>
-    <section className="workspace reveal delay-2"><div className="activity-panel"><div className="section-heading"><div><p className="eyebrow">Memory stream</p><h2>Recent context</h2></div><span>{snapshot.recent_items.length} latest</span></div><div className="activity-list">{snapshot.recent_items.map(item => <article className="activity-row" key={item.id}><span className={`tier-dot ${item.tier.toLowerCase()}`} /><div className="activity-copy"><div><span>{item.tier}</span><b>·</b><span>{item.scope}</span></div><p>{item.content}</p><small>{item.provenance || "direct write"} · {ago(item.created_at)}</small></div><ArrowUpRight size={16} /></article>)}</div></div>
-      <aside className="system-panel"><div className="section-heading"><div><p className="eyebrow">Core vitals</p><h2>System</h2></div><Activity size={19} /></div><div className="core-orbit"><div className="orbit orbit-a" /><div className="orbit orbit-b" /><div className="core"><Sparkles size={22} /><span>GOVERNOR</span></div></div><dl><div><dt>Runtime</dt><dd>{snapshot.status}</dd></div><div><dt>Privacy boundary</dt><dd>{snapshot.identity.tenant_id}</dd></div><div><dt>Authentication</dt><dd>{snapshot.auth_enabled ? "enforced" : "open / local"}</dd></div><div><dt>Core version</dt><dd>v{snapshot.version}</dd></div></dl><div className="guardrail"><ShieldCheck size={18} /><div><b>Policy engine active</b><span>Scope checked before ranking</span></div></div></aside></section>
-    <section className="workbench reveal delay-3"><div className="workbench-copy"><p className="eyebrow">Assembly workbench</p><h2>Ask the memory.</h2><p>Run a task through Trilith’s governor and inspect exactly what earns a place in the context window.</p></div><form onSubmit={assemble}><label htmlFor="task">Task description</label><div className="query-box"><Search size={19} /><input id="task" value={query} onChange={event => setQuery(event.target.value)} /><button disabled={assembling || !query.trim()}>{assembling ? "Ranking…" : "Assemble"}<ArrowUpRight size={16} /></button></div><div className="budget-row"><span>Token budget</span><input type="range" min="100" max="1200" step="50" value={budget} onChange={event => setBudget(Number(event.target.value))} /><output>{budget}</output></div></form>{assembly && <div className="assembly-result"><div className="result-stat"><Braces size={18} /><div><strong>{assembly.tokens_used}</strong><span>tokens used</span></div></div><div className="result-stat"><CircleCheck size={18} /><div><strong>{assembly.items.length}</strong><span>items selected</span></div></div><div className="result-stat muted"><ShieldCheck size={18} /><div><strong>{assembly.excluded_items.length}</strong><span>policy exclusions</span></div></div><div className="selected-items">{assembly.items.map(item => <span key={item.id}><i className={item.tier.toLowerCase()} />{item.id}</span>)}</div></div>}</section>
-    <footer><span>TRILITH / CONTEXT INFRASTRUCTURE</span><span>REST :8080 <i /> gRPC :50051</span></footer>
-  </main>;
+  const [filters, setFilters] = useState<Filters>({ tier: "", scope: "", q: "", offset: 0 });
+  const [selected, setSelected] = useState<Item | null>(null);
+  const [mode, setMode] = useState<InspectorMode>("empty");
+
+  const [live, setLive] = useState(true);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [assembling, setAssembling] = useState(false);
+  const [identityOpen, setIdentityOpen] = useState(false);
+
+  // The event cursor and the live filters are read inside the polling loop,
+  // which must not be re-created every keystroke.
+  const cursor = useRef(0);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const onFailure = useCallback(
+    (error: unknown) => {
+      const kind = classify(error);
+      if (kind) {
+        setConnection(kind);
+        setDetail(describeError(error));
+      } else {
+        toast("error", describeError(error));
+      }
+    },
+    [toast],
+  );
+
+  const loadItems = useCallback(
+    async (next: Filters) => {
+      setLoadingItems(true);
+      try {
+        setPage(await api.items(session, next));
+        setConnection("online");
+      } catch (error) {
+        onFailure(error);
+      } finally {
+        setLoadingItems(false);
+      }
+    },
+    [session, onFailure],
+  );
+
+  const loadEvents = useCallback(async () => {
+    const body = await api.events(session, cursor.current);
+    cursor.current = body.latest_seq;
+    if (body.events.length > 0) {
+      setEvents((current) => [...body.events.slice().reverse(), ...current].slice(0, FEED_LENGTH));
+    }
+    return body.events.length;
+  }, [session]);
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [snap, subtaskBody, tenantBody] = await Promise.all([
+        api.snapshot(session),
+        api.subtasks(session),
+        api.tenants(session),
+      ]);
+      setSnapshot(snap);
+      setSubtasks(subtaskBody.subtasks);
+      setTenants(tenantBody.tenants);
+      setConnection("online");
+      setDetail("");
+      await Promise.all([loadItems(filtersRef.current), loadEvents()]);
+    } catch (error) {
+      onFailure(error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [session, loadItems, loadEvents, onFailure]);
+
+  // A change of identity is a change of world: drop the feed cursor and the
+  // selection rather than showing one tenant's rows under another's name.
+  useEffect(() => {
+    if (!sessionReady) return;
+    cursor.current = 0;
+    setEvents([]);
+    setSelected(null);
+    setMode("empty");
+    setAssembly(null);
+    void refreshAll();
+    // refreshAll changes with the session, which is exactly when this should run.
+  }, [sessionReady, refreshAll]);
+
+  // Filters: debounced, because the search box types into a SQL LIKE.
+  useEffect(() => {
+    if (!sessionReady || connection === "offline" || connection === "unauthorized") return;
+    const timer = window.setTimeout(() => void loadItems(filters), 220);
+    return () => window.clearTimeout(timer);
+  }, [filters, sessionReady, connection, loadItems]);
+
+  // Live traffic. New events mean the store moved, so the counts and the list
+  // are refetched too - including when the writer was someone else entirely.
+  useEffect(() => {
+    if (!live || !sessionReady || connection !== "online") return;
+    const timer = window.setInterval(async () => {
+      try {
+        const arrived = await loadEvents();
+        if (arrived > 0) {
+          const [snap, subtaskBody] = await Promise.all([api.snapshot(session), api.subtasks(session)]);
+          setSnapshot(snap);
+          setSubtasks(subtaskBody.subtasks);
+          await loadItems(filtersRef.current);
+        }
+      } catch (error) {
+        onFailure(error);
+      }
+    }, POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [live, sessionReady, connection, session, loadEvents, loadItems, onFailure]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing = target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        setIdentityOpen(false);
+        setMode("empty");
+        setSelected(null);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  async function run(action: () => Promise<string>) {
+    setBusy(true);
+    try {
+      toast("ok", await action());
+      await refreshAll();
+    } catch (error) {
+      onFailure(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function create(draft: Draft) {
+    void run(async () => {
+      await api.write(session, draft);
+      setMode("empty");
+      return `Wrote ${draft.id}`;
+    });
+  }
+
+  function save(id: string, changes: Partial<Draft>) {
+    void run(async () => {
+      const body = await api.patch(session, id, changes);
+      if (body.item) setSelected(body.item);
+      return body.changed.length ? `Updated ${id} (${body.changed.join(", ")})` : `${id} unchanged`;
+    });
+  }
+
+  function remove(id: string) {
+    void run(async () => {
+      await api.remove(session, id);
+      setSelected(null);
+      setMode("empty");
+      return `Deleted ${id}`;
+    });
+  }
+
+  function fold(subtaskId: string) {
+    void run(async () => {
+      const body = await api.fold(session, subtaskId);
+      if (!body.success) throw new Error(body.message);
+      return `Folded ${body.folded_count} steps of ${subtaskId}`;
+    });
+  }
+
+  function forget(scope: Scope) {
+    void run(async () => {
+      const body = await api.forget(session, scope);
+      setSelected(null);
+      setMode("empty");
+      return `Forgot ${scope}: ${body.deleted_episodic_count} episodic items removed`;
+    });
+  }
+
+  function purge() {
+    void run(async () => {
+      const body = await api.purgeExpired(session);
+      return `Purged ${body.deleted_count} expired items`;
+    });
+  }
+
+  function seed() {
+    void run(async () => {
+      for (const draft of SAMPLE_CONTEXT) await api.write(session, draft);
+      return `Wrote ${SAMPLE_CONTEXT.length} sample items`;
+    });
+  }
+
+  async function assemble(task: string, budget: number) {
+    setAssembling(true);
+    try {
+      setAssembly(await api.assemble(session, task, budget));
+    } catch (error) {
+      onFailure(error);
+    } finally {
+      setAssembling(false);
+    }
+  }
+
+  async function pick(id: string) {
+    try {
+      const item = await api.item(session, id);
+      setSelected(item);
+      setMode("edit");
+    } catch (error) {
+      toast("info", `${id} is not readable from this tenant`);
+      void error;
+    }
+  }
+
+  function selectItem(item: Item) {
+    setSelected(item);
+    setMode("edit");
+  }
+
+  const disconnected = connection === "offline" || connection === "unauthorized";
+  const empty = connection === "online" && (snapshot?.total_items ?? 0) === 0;
+
+  return (
+    <main>
+      <TopBar
+        connection={connection}
+        snapshot={snapshot}
+        session={session}
+        live={live}
+        refreshing={refreshing}
+        identityOpen={identityOpen}
+        onToggleLive={() => setLive((value) => !value)}
+        onRefresh={() => void refreshAll()}
+        onToggleIdentity={() => setIdentityOpen((value) => !value)}
+      />
+
+      {identityOpen ? (
+        <IdentityPanel
+          session={session}
+          snapshot={snapshot}
+          tenants={tenants}
+          onApply={updateSession}
+          onClose={() => setIdentityOpen(false)}
+        />
+      ) : null}
+
+      {disconnected ? (
+        <Disconnected
+          connection={connection}
+          detail={detail}
+          onRetry={() => void refreshAll()}
+          onOpenIdentity={() => setIdentityOpen(true)}
+        />
+      ) : (
+        <>
+          <TierStats
+            snapshot={snapshot}
+            activeTier={filters.tier}
+            onSelectTier={(tier: Tier | "") => setFilters({ ...filters, tier, offset: 0 })}
+          />
+
+          {empty ? (
+            <div className="seed-banner">
+              <div>
+                <strong>This tenant has no context yet.</strong>
+                <span>
+                  Write a small set of real items — facts, a sub-task with steps, and a
+                  session-scoped event — so there is something to rank, fold, and forget.
+                </span>
+              </div>
+              <button type="button" className="primary-button" onClick={seed} disabled={busy}>
+                <Sprout size={14} /> Write sample context
+              </button>
+            </div>
+          ) : null}
+
+          <div className="workspace">
+            <Explorer
+              ref={searchRef}
+              page={page}
+              filters={filters}
+              loading={loadingItems}
+              selectedId={selected?.id ?? null}
+              onFilters={(next) => setFilters({ ...filters, ...next })}
+              onSelect={selectItem}
+              onCompose={() => {
+                setSelected(null);
+                setMode("create");
+              }}
+            />
+            <Inspector
+              mode={mode}
+              item={selected}
+              busy={busy}
+              onCreate={create}
+              onSave={save}
+              onDelete={remove}
+              onClose={() => {
+                setMode("empty");
+                setSelected(null);
+              }}
+            />
+          </div>
+
+          <Workbench assembly={assembly} busy={assembling} onAssemble={assemble} onPick={pick} />
+
+          <div className="lower">
+            <ActivityFeed events={events} live={live} />
+            <OpsPanel
+              snapshot={snapshot}
+              subtasks={subtasks}
+              busy={busy}
+              onFold={fold}
+              onForget={forget}
+              onPurge={purge}
+            />
+          </div>
+        </>
+      )}
+
+      <footer>
+        <span>TRILITH / CONTEXT INFRASTRUCTURE</span>
+        <span>
+          REST :8080 <i /> gRPC :50051
+        </span>
+      </footer>
+    </main>
+  );
 }

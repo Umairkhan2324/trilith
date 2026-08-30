@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import List, Optional, Sequence, Tuple
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
@@ -22,6 +23,20 @@ _SELECT_COLS = (
     "id, tier, content, scope, provenance, created_at_sec, created_at_nanosec, "
     "expires_at_sec, expires_at_nanosec, embedding, tenant_id, owner_id, session_id"
 )
+
+
+@dataclass(frozen=True)
+class StoredItem:
+    """A row as it exists on disk.
+
+    `ContextItem` has no `subtask_id` — folding groups steps by a column the
+    proto does not carry. Anything that has to round-trip a row (an editor
+    saving a change) needs both halves, so read paths for humans return this
+    instead of a bare item.
+    """
+
+    item: ContextItem
+    subtask_id: Optional[str] = None
 
 
 class SQLiteBackend:
@@ -213,6 +228,118 @@ class SQLiteBackend:
         cursor = self._conn.cursor()
         cursor.execute(query_str, params)
         return int(cursor.fetchone()[0])
+
+    def stored(self, item_id: str, tenant_id: Optional[str] = None) -> Optional["StoredItem"]:
+        """One row, including the columns `ContextItem` cannot carry."""
+        query_str = f"SELECT {_SELECT_COLS}, subtask_id FROM context_items WHERE id = ?"
+        params: list = [item_id]
+        if tenant_id is not None:
+            query_str += " AND tenant_id = ?"
+            params.append(normalize_tenant(tenant_id))
+
+        cursor = self._conn.cursor()
+        cursor.execute(query_str, params)
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return StoredItem(item=self._row_to_item(row[:-1]), subtask_id=row[-1])
+
+    def search(
+        self,
+        tenant_id: Optional[str] = None,
+        global_tiers: Sequence[Tier] = (),
+        tiers: Optional[Sequence[Tier]] = None,
+        scope: Optional[Scope] = None,
+        text: str = "",
+        owner_id: str = "",
+        session_id: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List["StoredItem"], int]:
+        """Browse a tenant's rows across tiers, newest first.
+
+        This is the read path a console needs and `query` is not: it spans
+        tiers, matches free text, and pages. The tenant predicate is identical
+        to `query`'s — `global_tiers` names the tiers whose GLOBAL items are
+        cross-tenant (episodic is deliberately not one of them).
+
+        Returns (page, total_matching).
+        """
+        clauses: List[str] = []
+        params: list = []
+
+        if tenant_id is not None:
+            if global_tiers:
+                placeholders = ", ".join("?" for _ in global_tiers)
+                clauses.append(f"(tenant_id = ? OR (scope = ? AND tier IN ({placeholders})))")
+                params.append(normalize_tenant(tenant_id))
+                params.append(int(Scope.GLOBAL))
+                params.extend(int(tier) for tier in global_tiers)
+            else:
+                clauses.append("tenant_id = ?")
+                params.append(normalize_tenant(tenant_id))
+
+        if tiers:
+            placeholders = ", ".join("?" for _ in tiers)
+            clauses.append(f"tier IN ({placeholders})")
+            params.extend(int(tier) for tier in tiers)
+
+        if scope is not None:
+            clauses.append("scope = ?")
+            params.append(int(scope))
+
+        if owner_id:
+            clauses.append("owner_id = ?")
+            params.append(owner_id)
+
+        if session_id:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+
+        needle = text.strip().lower()
+        if needle:
+            like = f"%{needle}%"
+            clauses.append(
+                "(LOWER(content) LIKE ? OR LOWER(id) LIKE ? "
+                "OR LOWER(IFNULL(provenance, '')) LIKE ? OR LOWER(IFNULL(subtask_id, '')) LIKE ?)"
+            )
+            params.extend([like, like, like, like])
+
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        cursor = self._conn.cursor()
+        cursor.execute(f"SELECT COUNT(*) FROM context_items{where}", params)
+        total = int(cursor.fetchone()[0])
+
+        page_sql = (
+            f"SELECT {_SELECT_COLS}, subtask_id FROM context_items{where}"
+            " ORDER BY created_at_sec DESC, created_at_nanosec DESC, id DESC"
+            " LIMIT ? OFFSET ?"
+        )
+        cursor.execute(page_sql, [*params, max(1, int(limit)), max(0, int(offset))])
+        rows = cursor.fetchall()
+        page = [StoredItem(item=self._row_to_item(row[:-1]), subtask_id=row[-1]) for row in rows]
+        return page, total
+
+    def list_subtasks(self, tenant_id: Optional[str] = None) -> List[Tuple[str, int]]:
+        """Procedural sub-tasks with more than nothing in them: (subtask_id, steps).
+
+        A console needs this to offer `fold` on something real rather than
+        asking an operator to remember identifiers.
+        """
+        query_str = (
+            "SELECT subtask_id, COUNT(*) FROM context_items "
+            "WHERE tier = ? AND subtask_id IS NOT NULL AND subtask_id != ''"
+        )
+        params: list = [int(Tier.PROCEDURAL)]
+        if tenant_id is not None:
+            query_str += " AND tenant_id = ?"
+            params.append(normalize_tenant(tenant_id))
+        query_str += " GROUP BY subtask_id ORDER BY COUNT(*) DESC, subtask_id"
+
+        cursor = self._conn.cursor()
+        cursor.execute(query_str, params)
+        return [(row[0], int(row[1])) for row in cursor.fetchall()]
 
     def delete(self, item_id: str, tenant_id: Optional[str] = None) -> bool:
         query_str = "DELETE FROM context_items WHERE id = ?"
