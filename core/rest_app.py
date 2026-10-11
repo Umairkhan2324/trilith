@@ -19,6 +19,7 @@ policy allows.
 
 from __future__ import annotations
 
+import math
 import time
 from typing import List, Optional
 
@@ -26,7 +27,9 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from google.protobuf.timestamp_pb2 import Timestamp
 from pydantic import BaseModel
 
+from core import __version__
 from core.auth import AuthError
+from core.governor import BUDGET_EXCEEDED, RELEVANCE_FLOOR
 from core.identity import Principal
 from core.ops import (
     assemble_context,
@@ -41,7 +44,9 @@ from core.proto.trilith_pb2 import ContextItem, Scope, Tier
 from core.runtime import TrilithRuntime
 from core.sqlite_backend import StoredItem
 
-OVER_BUDGET = "Exceeded token budget"
+# The budget a caller gets when they do not choose one. Named once so the
+# model default and the null-handling below cannot drift apart.
+DEFAULT_BUDGET = 200
 
 
 class _TenantAware(BaseModel):
@@ -80,7 +85,9 @@ class ItemPatch(_TenantAware):
 
 class AssembleBody(_TenantAware):
     task: str
-    budget: Optional[int] = 200
+    # Optional means "omit it and get the default". An explicit null means the
+    # same thing - it used to mean a 500 out of the governor's fill loop.
+    budget: Optional[int] = DEFAULT_BUDGET
     # Legacy v0.1 field. Prefer tenant_id/owner_id/session_id.
     requester_scope: Optional[str] = None
 
@@ -132,8 +139,14 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
     app = FastAPI(
         title="Trilith Context Management API",
         description="Language-agnostic context management layer for AI systems.",
-        version="0.2.0",
+        version=__version__,
     )
+
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(PermissionError)
+    async def permission_error(request, exc):
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
 
     tiers = (
         ("SEMANTIC", Tier.SEMANTIC, rt.semantic),
@@ -178,6 +191,10 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         except AuthError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
 
+    def require_admin(principal: Principal) -> None:
+        if not principal.can("tenant_admin"):
+            raise HTTPException(status_code=403, detail="tenant_admin capability required")
+
     def item_payload(stored: StoredItem, principal: Principal) -> dict:
         """One row as a console needs it: content, cost, and admissibility."""
         item = stored.item
@@ -216,7 +233,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         return {
             "status": "ok",
             "service": "trilith-core",
-            "version": "0.2.0",
+            "version": __version__,
             "auth_enabled": rt.auth.enabled,
         }
 
@@ -246,6 +263,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
     ):
         """Tenant-scoped operational snapshot for human-facing consoles."""
         principal = principal_from_query(authorization, tenant_id, owner_id, session_id)
+        require_admin(principal)
 
         safe_limit = max(1, min(limit, 50))
         counts = {}
@@ -279,7 +297,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         recent.sort(key=lambda item: item["created_at"], reverse=True)
         return {
             "service": "trilith-core",
-            "version": "0.2.0",
+            "version": __version__,
             "status": "operational",
             "auth_enabled": rt.auth.enabled,
             "identity": identity_payload(principal),
@@ -310,6 +328,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         an operator most needs to see, so it is listed, not omitted.
         """
         principal = principal_from_query(authorization, tenant_id, owner_id, session_id)
+        require_admin(principal)
 
         selected_tiers = [_parse_tier(tier)] if tier else None
         selected_scope = _parse_scope(scope) if scope else None
@@ -343,6 +362,8 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         session_id: Optional[str] = None,
     ):
         principal = principal_from_query(authorization, tenant_id, owner_id, session_id)
+        require_admin(principal)
+        require_admin(principal)
         stored = rt.backend.stored(item_id, tenant_id=principal.tenant_id)
         if stored is None:
             raise HTTPException(status_code=404, detail=f"No item '{item_id}' in this tenant")
@@ -357,6 +378,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
     ):
         """Procedural sub-tasks that currently hold steps - the fold candidates."""
         principal = principal_from_query(authorization, tenant_id, owner_id, session_id)
+        require_admin(principal)
         groups = rt.backend.list_subtasks(tenant_id=principal.tenant_id)
         return {"subtasks": [{"subtask_id": name, "steps": steps} for name, steps in groups]}
 
@@ -375,6 +397,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         is not a durable audit log.
         """
         principal = principal_from_query(authorization, tenant_id, owner_id, session_id)
+        require_admin(principal)
         events = rt.events.since(after=after, tenant_id=principal.tenant_id, limit=limit)
         return {
             "events": [event.to_dict() for event in events],
@@ -435,6 +458,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         the columns it was not asked to change.
         """
         principal = principal_for(body, authorization)
+        require_admin(principal)
         stored = rt.backend.stored(item_id, tenant_id=principal.tenant_id)
         if stored is None:
             raise HTTPException(status_code=404, detail=f"No item '{item_id}' in this tenant")
@@ -495,6 +519,7 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
         session_id: Optional[str] = None,
     ):
         principal = principal_from_query(authorization, tenant_id, owner_id, session_id)
+        require_admin(principal)
         if not delete_item(rt, item_id, principal=principal):
             raise HTTPException(status_code=404, detail=f"No item '{item_id}' in this tenant")
         return {"success": True, "id": item_id, "tenant_id": principal.tenant_id}
@@ -502,27 +527,34 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
     @app.post("/v1/assemble")
     def assemble(body: AssembleBody, authorization: Optional[str] = Header(default=None)):
         principal = principal_for(body, authorization)
+        budget = DEFAULT_BUDGET if body.budget is None else body.budget
         assembled = assemble_context(
             rt,
             task=body.task,
-            budget=body.budget,
+            budget=budget,
             principal=principal,
         )
 
         def excluded_payload(excluded) -> dict:
             item = excluded.item
-            over_budget = excluded.reason == OVER_BUDGET
+            if excluded.reason == BUDGET_EXCEEDED:
+                kind = "budget"
+            elif excluded.reason.startswith(RELEVANCE_FLOOR):
+                kind = "relevance"
+            else:
+                kind = "policy"
             return {
                 "id": item.id,
                 "tier": Tier.Name(item.tier),
                 "scope": Scope.Name(item.scope),
                 "reason": excluded.reason,
-                "kind": "budget" if over_budget else "policy",
-                # Budget drops already passed the policy, so their (redacted)
-                # content is safe to echo. Policy denials are not: showing the
-                # content of something the caller may not read would undo the
-                # decision being reported.
-                "content": item.content if over_budget else "",
+                "kind": kind,
+                # Budget and relevance drops already cleared the policy, so
+                # their (redacted) content is safe to echo - and it is what an
+                # operator needs to judge whether the ranker was right. Policy
+                # denials are not: handing over the content of something the
+                # caller may not read would undo the decision being reported.
+                "content": "" if kind == "policy" else item.content,
                 "tokens": rt.governor.estimate_tokens(item),
             }
 
@@ -539,8 +571,11 @@ def create_rest_app(rt: TrilithRuntime) -> FastAPI:
                 for i in assembled.items
             ],
             "tokens_used": assembled.tokens_used,
-            "budget": body.budget,
+            "budget": budget,
             "task": body.task,
+            # JSON has no infinity, and a disabled floor is exactly that. Null
+            # reads as "no relevance floor", which is what it means.
+            "min_score": (rt.governor.min_score if math.isfinite(rt.governor.min_score) else None),
             "excluded_items": [excluded_payload(ex) for ex in assembled.excluded_items],
             "candidates_truncated": assembled.candidates_truncated,
             "tenant_id": principal.tenant_id,

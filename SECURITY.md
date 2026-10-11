@@ -1,5 +1,11 @@
 # Security Policy
 
+Unreleased hardening: tenant-qualified primary keys; credential-pinned owner and
+session; explicit `tenant_admin` and `publish_global` capabilities; MCP identity
+outside tool arguments; policy-filtered Query and sanitized assembly diagnostics.
+See [upgrade guidance](docs/upgrade-research.md) for breaking changes and erasure limits.
+The deployment notes below describe earlier releases where indicated.
+
 ## Supported versions
 
 | Version | Supported |
@@ -28,9 +34,9 @@
 - **No TLS.** Terminate HTTPS at a reverse proxy. Keys sent over plain HTTP across an
   untrusted network are compromised keys.
 - **No end-user IAM.** Trilith authenticates *your service*, not your users. Your app
-  authenticates its users and passes an `owner_id`.
+  authenticates its users and provisions owner/session-bound credentials.
 - **API keys are bearer tokens.** Anyone holding one is that tenant. There is no
-  rotation policy, expiry, or scope beyond tenant/owner.
+  rotation policy, expiry policy. Capabilities and owner/session bindings limit authority.
 - **No rate limiting or per-tenant quotas.** One tenant can exhaust the disk.
 - **PII redaction is regex-based.** It is a safety net, not a compliance control, and it
   will miss formats it does not know.

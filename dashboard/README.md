@@ -26,8 +26,9 @@ everything it does goes through the same REST gateway an agent would use.
 **Watch**
 
 - an assembly workbench that runs the real governor: a budget meter showing what
-  each admitted item costs, then everything excluded, split into what the budget
-  pushed out and what the policy refused;
+  each admitted item costs, then everything excluded, split into the three
+  reasons an item misses the prompt — refused by policy, below the relevance
+  floor, or out of budget;
 - a live activity feed of every operation on the instance — including writes made
   by an agent over gRPC or MCP while the page is open;
 - an identity switcher for tenant, owner, and session, so you can watch the same

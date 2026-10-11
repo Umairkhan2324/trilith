@@ -6,6 +6,12 @@ from typing import List, Optional, Tuple, Union
 
 from core.identity import Principal
 from core.proto.trilith_pb2 import AssembledContext, ContextItem, ExcludedItem
+from core.retrieval import BM25Scorer, pack
+
+# Why an item did not reach the prompt. Gateways group exclusions by these, so
+# they are constants rather than literals spelled out at each raise site.
+BUDGET_EXCEEDED = "Exceeded token budget"
+RELEVANCE_FLOOR = "Below relevance floor"
 
 
 class Scorer(ABC):
@@ -76,9 +82,13 @@ class TFIDFScorer(Scorer):
                 scores.append(0.0)
                 continue
 
+            # Iterate the query's *distinct* terms. `task_tokens` is a list, so
+            # summing over it counted a repeated word once per occurrence and
+            # pushed the result above 1.0 - not a similarity at all. `task_vec`
+            # is already keyed by distinct term, with the tf weight folded in.
             dot_product = 0.0
-            for term in task_tokens:
-                dot_product += task_vec.get(term, 0.0) * doc_vec.get(term, 0.0)
+            for term, task_weight in task_vec.items():
+                dot_product += task_weight * doc_vec.get(term, 0.0)
 
             scores.append(dot_product / (task_norm * doc_norm))
 
@@ -171,14 +181,14 @@ class EmbeddingScorer(Scorer):
 
 
 class Governor:
-    """Ranks candidate context and fills a token budget, auditing what it drops.
+    """Policy-first full-corpus retrieval and budgeted evidence coverage.
 
-    Cost note: the distraction penalty compares every candidate against every
-    other, so assembly is O(n²) in the candidate count. `max_candidates` caps
-    how many items a single tier may contribute (newest first), and
-    `max_pairwise` is the size above which the penalty is skipped entirely
-    rather than allowed to dominate latency. Both are surfaced rather than
-    silent: `AssembledContext.candidates_truncated` reports what was cut.
+    Defaults to Unicode BM25 and marginal coverage per cost. max_candidates
+    bounds the packing pool, not the exact first-stage corpus scan. A custom
+    TFIDFScorer retains the optional pairwise distraction penalty. Costs use a
+    supplied tokenizer or UTF-8 content bytes; callers reserve prompt overhead.
+    Policy denials are recorded durably without returning private item metadata.
+    See docs/research.md for the objective, complexity and experimental limits.
     """
 
     def __init__(
@@ -191,24 +201,44 @@ class Governor:
         distraction_coef: float = 0.5,
         max_candidates: int = 500,
         max_pairwise: int = 400,
+        min_score: float = 0.0,
+        token_counter=None,
+        selection: str = "coverage",
     ):
         self.semantic_store = semantic_store
         self.procedural_store = procedural_store
         self.episodic_store = episodic_store
         self.policy_engine = policy_engine
-        self.scorer = scorer or TFIDFScorer()
+        self.scorer = scorer or BM25Scorer()
+        self.token_counter = token_counter
+        self.selection = selection
+        self.audit = None
+        if selection not in ("coverage", "rank"):
+            raise ValueError("selection must be coverage or rank")
         self.distraction_coef = distraction_coef
+        if not isinstance(max_candidates, int) or max_candidates < 1:
+            raise ValueError("max_candidates must be positive")
+        if math.isnan(min_score) or min_score == float("inf"):
+            raise ValueError("min_score must be finite or negative infinity")
         self.max_candidates = max_candidates
         self.max_pairwise = max_pairwise
+        self.min_score = min_score
 
     def estimate_tokens(self, item: ContextItem) -> int:
         """Estimate token consumption of a given context item.
 
-        Rule of thumb: ~4 characters per token. Content is the primary driver.
+        Uses the configured content tokenizer, or UTF-8 bytes as a proxy.
+        The application must reserve framing, tools and generation overhead.
         """
         if not item.content:
             return 0
-        return max(1, len(item.content) // 4)
+        if self.token_counter is not None:
+            value = self.token_counter(item.content)
+            if not isinstance(value, int) or value < 1:
+                raise ValueError("token counter must return a positive integer")
+            return value
+        # UTF-8 bytes are a conservative content-only proxy, not a model tokenizer.
+        return max(1, len(item.content.encode("utf-8")))
 
     def rank(
         self, candidates: List[ContextItem], task: str, budget: int
@@ -288,11 +318,22 @@ class Governor:
             )
             return list(legacy), 0
 
-        items = store.query_for(principal, limit=self.max_candidates)
+        # Search the full tenant corpus before applying the candidate cap.
+        items = store.query_for(principal)
+        if self.policy_engine:
+            items, denied = self.policy_engine.filter(items, principal)
+            if self.audit:
+                for _, reason in denied:
+                    self.audit.record(principal, "policy", "denied", reason=reason.split(":")[0])
+        scores = self.scorer.score(items, task)
+        items = [
+            item for item, _ in sorted(zip(items, scores), key=lambda pair: pair[1], reverse=True)
+        ]
+        total = len(items)
+        items = items[: self.max_candidates]
 
         truncated = 0
-        if len(items) >= self.max_candidates and hasattr(store, "count_for"):
-            truncated = max(0, store.count_for(principal) - len(items))
+        truncated = max(0, total - len(items))
         return items, truncated
 
     def assemble(
@@ -307,7 +348,14 @@ class Governor:
         `principal` carries tenant/owner/session identity and is the preferred
         input. `requester_scope` remains accepted for v0.1 callers and is
         interpreted as a legacy scope name.
+
+        Raises:
+            ValueError: if `budget` is not a number. Failing here names the
+                problem; the comparison inside the fill loop did not.
         """
+        if not isinstance(budget, int) or isinstance(budget, bool) or budget < 0:
+            raise ValueError("assemble() requires a nonnegative integer token budget")
+
         if principal is None:
             principal = Principal(legacy_scope=requester_scope)
         elif isinstance(principal, str):
@@ -330,7 +378,7 @@ class Governor:
         if self.policy_engine:
             allowed_candidates, denied_list = self.policy_engine.filter(candidates, principal)
             for item, reason in denied_list:
-                excluded_items.append(ExcludedItem(item=item, reason=reason))
+                excluded_items.append(ExcludedItem(reason="Policy denied"))
         else:
             allowed_candidates = candidates
 
@@ -341,13 +389,40 @@ class Governor:
         assembled_items = []
         tokens_used = 0
 
+        eligible = [(i, s) for i, s in ranked_candidates if math.isfinite(s) and s > self.min_score]
+        selected_keys = None
+        if self.selection == "coverage" and self.min_score != float("-inf"):
+            selected = pack(
+                [i for i, _ in eligible],
+                [s for _, s in eligible],
+                task,
+                budget,
+                self.estimate_tokens,
+            )
+            selected_keys = {(eligible[k][0].tenant_id, eligible[k][0].id) for k in selected}
+
         for item, score in ranked_candidates:
+            # Relevance first. An item nobody asked for is not a budget
+            # problem, and saying so would misreport why it was dropped.
+            if not math.isfinite(score) or score <= self.min_score:
+                excluded_items.append(
+                    ExcludedItem(
+                        item=item,
+                        reason=(
+                            f"{RELEVANCE_FLOOR}: scored {score:.4f}, at or below {self.min_score}"
+                        ),
+                    )
+                )
+                continue
+
             item_tokens = self.estimate_tokens(item)
-            if tokens_used + item_tokens <= budget:
+            if tokens_used + item_tokens <= budget and (
+                selected_keys is None or (item.tenant_id, item.id) in selected_keys
+            ):
                 assembled_items.append(item)
                 tokens_used += item_tokens
             else:
-                excluded_items.append(ExcludedItem(item=item, reason="Exceeded token budget"))
+                excluded_items.append(ExcludedItem(item=item, reason=BUDGET_EXCEEDED))
 
         return AssembledContext(
             items=assembled_items,

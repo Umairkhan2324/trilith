@@ -96,7 +96,7 @@ def test_anonymous_principal_still_needs_a_scope_for_legacy_rows(tmp_path):
     rt = build_runtime(db)
     anonymous = rt.governor.assemble("Alice", budget=200, principal=Principal())
     assert anonymous.items == []
-    assert "Scope mismatch" in anonymous.excluded_items[0].reason
+    assert not anonymous.excluded_items  # Forbidden identifiers are not disclosed.
 
 
 def test_legacy_requester_scope_still_works(tmp_path):
@@ -111,7 +111,7 @@ def test_legacy_requester_scope_still_works(tmp_path):
     # ...and a mismatched scope still excludes the item, with a reason.
     denied = rt.governor.assemble("Alice", budget=200, requester_scope="SESSION")
     assert denied.items == []
-    assert "Scope mismatch" in denied.excluded_items[0].reason
+    assert not denied.excluded_items
 
 
 def test_migration_is_idempotent(tmp_path):

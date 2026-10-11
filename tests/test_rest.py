@@ -101,8 +101,8 @@ def test_dashboard_reports_scoped_counts_and_recent_items(client):
 
 
 def test_dashboard_respects_api_key_tenant(client, rt):
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
     client.post(
         "/v1/write",
         json={
@@ -123,20 +123,20 @@ def test_dashboard_respects_api_key_tenant(client, rt):
 
 
 def test_requests_are_rejected_once_a_key_exists(client, rt):
-    rt.keys.create(tenant_id="acme")
+    rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
     r = client.post("/v1/assemble", json={"task": "anything"})
     assert r.status_code == 401
     assert "Missing API key" in r.json()["detail"]
 
 
 def test_bad_key_is_rejected(client, rt):
-    rt.keys.create(tenant_id="acme")
+    rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
     r = client.post("/v1/assemble", json={"task": "x"}, headers=_auth("tri_bogus"))
     assert r.status_code == 401
 
 
 def test_key_pins_the_tenant_against_a_spoofed_body(client, rt):
-    raw, _ = rt.keys.create(tenant_id="acme")
+    raw, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
 
     r = client.post(
         "/v1/write",
@@ -152,7 +152,7 @@ def test_key_pins_the_tenant_against_a_spoofed_body(client, rt):
     assert r.json()["tenant_id"] == "acme"
 
     # A globex key sees nothing acme wrote, no matter what it asks for.
-    globex_raw, _ = rt.keys.create(tenant_id="globex")
+    globex_raw, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
     ctx = client.post(
         "/v1/assemble",
         json={"task": "acme secret", "tenant_id": "acme"},
@@ -163,8 +163,8 @@ def test_key_pins_the_tenant_against_a_spoofed_body(client, rt):
 
 
 def test_two_tenants_do_not_see_each_other(client, rt):
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
 
     for key, name in ((acme_key, "acme"), (globex_key, "globex")):
         client.post(
@@ -227,10 +227,10 @@ def test_fold_endpoint_collapses_steps(client, rt):
     body = client.post("/v1/fold", json={"subtask_id": "deploy-9"}).json()
     assert body["success"] is True
     assert body["folded_count"] == 3
-    assert body["item"]["id"] == "folded-deploy-9"
+    assert body["item"]["id"].startswith("folded-")
 
     remaining = rt.backend.query(Tier.PROCEDURAL, tenant_id=Principal().tenant_id)
-    assert [i.id for i in remaining] == ["folded-deploy-9"]
+    assert {i.id for i in remaining} == {body["item"]["id"], "step-1", "step-2", "step-3"}
 
 
 def test_purge_expired_endpoint(client, rt):
@@ -258,8 +258,8 @@ def test_purge_expired_endpoint(client, rt):
 
 
 def test_forget_is_confined_to_the_callers_tenant(client, rt):
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
 
     for key, name in ((acme_key, "acme"), (globex_key, "globex")):
         client.post(

@@ -71,12 +71,16 @@ export type AssembledItem = {
   tokens: number;
 };
 
+/** Why an item did not reach the prompt. Three different problems. */
+export type ExclusionKind = "policy" | "relevance" | "budget";
+
 export type ExcludedItem = {
   id: string;
   tier: Tier;
   scope: Scope;
   reason: string;
-  kind: "budget" | "policy";
+  kind: ExclusionKind;
+  /** Empty for policy refusals: the caller may not read what it was denied. */
   content: string;
   tokens: number;
 };
@@ -87,6 +91,8 @@ export type Assembly = {
   tokens_used: number;
   budget: number;
   task: string;
+  /** The score an item had to beat. Null when the floor is disabled. */
+  min_score: number | null;
   candidates_truncated: number;
   tenant_id: string;
 };

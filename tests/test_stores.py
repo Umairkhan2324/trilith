@@ -2,6 +2,7 @@ import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from core.episodic import EpisodicStore
+from core.identity import Principal
 from core.procedural import ProceduralStore
 from core.proto.trilith_pb2 import ContextItem, Scope, Tier
 from core.semantic import SemanticStore
@@ -49,16 +50,16 @@ def test_procedural_store_folding():
     assert len(items_before) == 2
 
     # Fold it
-    folded = proc.fold(subtask_id="task-123")
+    folded = proc.fold(subtask_id="task-123", principal=Principal(capabilities=("publish_global",)))
     assert folded is not None
-    assert folded.id == "folded-task-123"
+    assert folded.id.startswith("folded-")
     assert "Initial setup" in folded.content
     assert "Core build step" in folded.content
 
     # Query after fold: only the summary item should remain
     items_after = proc.query()
-    assert len(items_after) == 1
-    assert items_after[0].id == "folded-task-123"
+    assert len(items_after) == 3
+    assert {i.id for i in items_after} == {folded.id, "step-1", "step-2"}
 
 
 def test_episodic_store_scope_enforcement():

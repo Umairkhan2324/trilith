@@ -55,9 +55,11 @@ def test_items_lists_every_tier_newest_first(client):
     assert all(item["tokens"] > 0 for item in body["items"])
 
 
-def test_items_filters_by_tier_scope_and_text(client):
+def test_items_filters_by_tier_scope_and_text(client, rt):
     _write(client, "python-fact", content="Alice prefers Python", tier="SEMANTIC")
-    _write(client, "rust-fact", content="Bob prefers Rust", tier="SEMANTIC", scope="GLOBAL")
+    from core.proto.trilith_pb2 import ContextItem, Scope
+
+    rt.semantic.write(ContextItem(id="rust-fact", content="Bob prefers Rust", scope=Scope.GLOBAL))
     _write(client, "step", content="ran the deploy", tier="PROCEDURAL")
 
     assert client.get("/v1/items?tier=PROCEDURAL").json()["total"] == 1
@@ -92,8 +94,8 @@ def test_items_reports_why_something_is_unreachable(client):
 
 
 def test_items_never_cross_a_tenant(client, rt):
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
     client.post(
         "/v1/write",
         json={"id": "acme-only", "tier": "SEMANTIC", "scope": "TENANT", "content": "secret"},
@@ -106,8 +108,8 @@ def test_items_never_cross_a_tenant(client, rt):
 
 def test_episodic_global_items_stay_in_their_tenant(client, rt):
     """The browse path honours the tiers' own include_global rule."""
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
     for tier in ("SEMANTIC", "EPISODIC"):
         client.post(
             "/v1/write",
@@ -169,8 +171,8 @@ def test_patch_rejects_an_unknown_tier(client):
 
 
 def test_patch_cannot_reach_into_another_tenant(client, rt):
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
     client.post(
         "/v1/write",
         json={"id": "acme-only", "tier": "SEMANTIC", "scope": "TENANT", "content": "secret"},
@@ -196,8 +198,8 @@ def test_delete_removes_one_item(client):
 
 
 def test_delete_cannot_reach_into_another_tenant(client, rt):
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
     client.post(
         "/v1/write",
         json={"id": "acme-only", "tier": "SEMANTIC", "scope": "TENANT", "content": "secret"},
@@ -219,9 +221,8 @@ def test_write_accepts_a_subtask_so_fold_is_reachable_over_rest(client):
     body = client.post("/v1/fold", json={"subtask_id": "deploy-9"}).json()
     assert body["success"] is True
     assert body["folded_count"] == 3
-    assert [i["id"] for i in client.get("/v1/items?tier=PROCEDURAL").json()["items"]] == [
-        "folded-deploy-9"
-    ]
+    ids = {i["id"] for i in client.get("/v1/items?tier=PROCEDURAL").json()["items"]}
+    assert {"step-1", "step-2", "step-3", body["item"]["id"]} == ids
 
 
 def test_write_accepts_a_relative_ttl(client):
@@ -241,18 +242,48 @@ def test_ttl_zero_clears_an_expiry(client):
 
 def test_assemble_reports_cost_per_item_and_why_things_were_dropped(client):
     _write(client, "wanted", content="Alice prefers Python for data work " * 3)
-    _write(client, "filler", content="Unrelated notes about boats " * 6)
+    # Relevant enough to clear the floor, too big to afford at this budget.
+    _write(client, "filler", content="Alice prefers a standing desk after lunch " * 4)
 
     body = client.post(
-        "/v1/assemble", json={"task": "What does Alice prefer?", "budget": 30}
+        "/v1/assemble", json={"task": "What does Alice prefer about Python?", "budget": 120}
     ).json()
-    assert body["budget"] == 30
-    assert body["tokens_used"] <= 30
+    assert body["budget"] == 120
+    assert body["tokens_used"] <= 120
     assert all(item["tokens"] > 0 for item in body["items"])
 
     dropped = body["excluded_items"]
-    assert dropped and all(d["kind"] == "budget" for d in dropped)
-    assert all(d["content"] for d in dropped)
+    assert [d["id"] for d in dropped] == ["filler"]
+    assert dropped[0]["kind"] == "budget"
+    assert dropped[0]["content"]
+
+
+def test_assemble_separates_the_irrelevant_from_the_merely_unaffordable(client):
+    """Two different problems must not be reported as the same one."""
+    _write(client, "wanted", content="Alice prefers Python and duckdb for data work")
+    _write(client, "noise", content="The fire drill is scheduled for Tuesday")
+
+    body = client.post(
+        "/v1/assemble", json={"task": "What does Alice prefer?", "budget": 10_000}
+    ).json()
+
+    assert [item["id"] for item in body["items"]] == ["wanted"]
+    dropped = body["excluded_items"][0]
+    assert dropped["id"] == "noise"
+    assert dropped["kind"] == "relevance"
+    # It cleared the policy, so an operator gets to see what was judged noise.
+    assert dropped["content"]
+    assert body["min_score"] == 0.0
+
+
+def test_assemble_accepts_an_explicit_null_budget(client):
+    """`{"budget": null}` used to be a 500 out of the governor's fill loop."""
+    _write(client, "fact", content="Alice prefers Python")
+
+    response = client.post("/v1/assemble", json={"task": "What does Alice prefer?", "budget": None})
+
+    assert response.status_code == 200
+    assert response.json()["budget"] == 200
 
 
 def test_policy_exclusions_report_the_reason_without_the_content(client):
@@ -264,10 +295,9 @@ def test_policy_exclusions_report_the_reason_without_the_content(client):
         json={"task": "anything", "budget": 500, "owner_id": "sam"},
     ).json()
     denied = [d for d in body["excluded_items"] if d["id"] == "someone-elses"]
-    assert len(denied) == 1
-    assert denied[0]["kind"] == "policy"
-    assert "Owner mismatch" in denied[0]["reason"]
-    assert denied[0]["content"] == ""
+    assert denied == []
+    assert "Maya" not in str(body)
+    assert "someone-elses" not in str(body)
 
 
 # --- Activity log --------------------------------------------------------
@@ -299,8 +329,8 @@ def test_events_stream_from_a_cursor(client):
 
 
 def test_events_are_confined_to_the_callers_tenant(client, rt):
-    acme_key, _ = rt.keys.create(tenant_id="acme")
-    globex_key, _ = rt.keys.create(tenant_id="globex")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
+    globex_key, _ = rt.keys.create(tenant_id="globex", capabilities=("tenant_admin",))
     client.post(
         "/v1/write",
         json={"id": "acme-only", "tier": "SEMANTIC", "scope": "TENANT", "content": "secret"},
@@ -333,13 +363,13 @@ def test_tenants_are_listed_in_open_mode_and_pinned_once_auth_is_on(client, rt):
     open_body = client.get("/v1/tenants").json()
     assert open_body == {"tenants": ["default"], "scoped": False}
 
-    acme_key, _ = rt.keys.create(tenant_id="acme")
+    acme_key, _ = rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
     scoped = client.get("/v1/tenants", headers=_auth(acme_key)).json()
     assert scoped == {"tenants": ["acme"], "scoped": True}
 
 
 def test_console_endpoints_require_a_key_once_auth_is_on(client, rt):
-    rt.keys.create(tenant_id="acme")
+    rt.keys.create(tenant_id="acme", capabilities=("tenant_admin", "publish_global"))
     for path in ("/v1/items", "/v1/events", "/v1/subtasks", "/v1/tenants"):
         assert client.get(path).status_code == 401, path
     assert client.delete("/v1/items/anything").status_code == 401

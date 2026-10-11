@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Optional
 
 import grpc
@@ -18,6 +19,19 @@ from core.ops import (
 )
 from core.proto import trilith_pb2, trilith_pb2_grpc
 from core.runtime import TrilithRuntime
+
+
+def gateway_errors(function):
+    @wraps(function)
+    def wrapped(self, request, context):
+        try:
+            return function(self, request, context)
+        except PermissionError as exc:
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+        except ValueError as exc:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+
+    return wrapped
 
 
 class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
@@ -76,6 +90,7 @@ class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
             context.set_details(str(exc))
             return trilith_pb2.QueryResponse()
 
+    @gateway_errors
     def Assemble(self, request, context):
         principal = self._principal(request, context, legacy_scope=request.requester_scope)
         return assemble_context(
@@ -85,6 +100,7 @@ class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
             principal=principal,
         )
 
+    @gateway_errors
     def Forget(self, request, context):
         if not request.scope:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -98,6 +114,7 @@ class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
             deleted_count=count,
         )
 
+    @gateway_errors
     def Fold(self, request, context):
         if not request.subtask_id:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -118,6 +135,7 @@ class TrilithServicer(trilith_pb2_grpc.ContextManagerServicer):
             folded_count=folded_count,
         )
 
+    @gateway_errors
     def PurgeExpired(self, request, context):
         principal = self._principal(request, context)
         deleted = purge_expired(self._rt, principal=principal)

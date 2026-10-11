@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from threading import Lock
+from contextlib import contextmanager
+from threading import RLock
 from typing import List, Optional, Sequence, Tuple
 
 from core.proto.trilith_pb2 import ContextItem, Scope, Tier
@@ -12,7 +13,12 @@ from core.sqlite_backend import StoredItem
 class ThreadSafeBackend:
     def __init__(self, backend):
         self._backend = backend
-        self._lock = Lock()
+        self._lock = RLock()
+
+    @contextmanager
+    def transaction(self):
+        with self._lock, self._backend.transaction():
+            yield
 
     @property
     def inner(self):
@@ -78,6 +84,10 @@ class ThreadSafeBackend:
     def list_subtasks(self, tenant_id: Optional[str] = None) -> List[Tuple[str, int]]:
         with self._lock:
             return self._backend.list_subtasks(tenant_id=tenant_id)
+
+    def lineage(self, item_id: str, tenant_id: str) -> set[str]:
+        with self._lock:
+            return self._backend.lineage(item_id, tenant_id)
 
     def count(
         self,

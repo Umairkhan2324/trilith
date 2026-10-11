@@ -1,5 +1,9 @@
 # Trilith Architecture
 
+> The unreleased research hardening changes identity, retrieval, token accounting,
+> folding and audit behavior. [Current implementation and migration](upgrade-research.md)
+> and [research specification](research.md) supersede the older release description below.
+
 Trilith is a language-agnostic context management layer that sits between AI agents and their memory. It answers the question: *"What context should this agent see right now, given limited token budget, multiple memory tiers, privacy constraints, and the risk of distraction?"*
 
 ---
@@ -37,7 +41,8 @@ Trilith is a language-agnostic context management layer that sits between AI age
 │     and capped at max_candidates (newest first)             │
 │  2. Run PolicyEngine.filter() — expiry, tenant, scope, PII  │
 │  3. Rank via TF-IDF + distraction penalty                   │
-│  4. Fill budget greedily, log excluded items + reasons      │
+│  4. Drop anything at or below min_score (relevance floor)   │
+│  5. Fill budget greedily, log excluded items + reasons      │
 └───────────────┬───────────────────┬────────────────┬────────┘
                 │                   │                │
       ┌─────────▼────────┐  ┌───────▼──────┐  ┌────▼────────┐
@@ -148,6 +153,7 @@ a large store, and neither is silent:
 |-------|---------|--------|
 | `max_candidates` | 500 per tier | Caps rows fetched, newest first. Anything cut is reported in `candidates_truncated`. |
 | `max_pairwise` | 400 | Above this, the pairwise matrix is skipped and ranking falls back to task similarity alone. |
+| `min_score` | 0.0 | The score an item must *exceed* to be admitted. Anything at or below it is excluded with a `Below relevance floor` reason. Disable with `trilith serve --min-score off`, `TRILITH_MIN_SCORE=off`, or `float("-inf")` in-process. |
 
 A non-zero `candidates_truncated` means your store holds more matching items than one
 assembly weighed — the same "no silent drops" contract the exclusion audit provides,
@@ -164,6 +170,20 @@ assemble(task, budget, principal)          # requester_scope still accepted (v0.
 ```
 Token budget is enforced strictly (≤ budget, never over). Every excluded item is logged
 with a human-readable reason string.
+
+An item has to clear **two** gates, and the audit distinguishes them, because they are
+fixed differently:
+
+| Reason | Meaning | What changes it |
+|--------|---------|-----------------|
+| Policy (`Owner mismatch`, `Tenant isolation`, `Item expired`) | The caller may not receive it | Identity, scope, or TTL |
+| `Below relevance floor` | The ranker found no evidence it matches the task | A better task string, or a lower `min_score` |
+| `Exceeded token budget` | Relevant, but the budget was already spent | A larger budget |
+
+Without the floor the budget is the *only* gate, so a generous budget injects whatever
+happens to fit — the opposite of what a context governor is for. Note that the floor is
+only as good as the score beneath it: TF-IDF computes IDF over the candidate set alone,
+so on a small store a shared stop word ("for", "the") is still weak positive evidence.
 
 ---
 

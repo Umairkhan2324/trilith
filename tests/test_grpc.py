@@ -134,7 +134,7 @@ def test_grpc_fold(server):
     resp = stub.Fold(trilith_pb2.FoldRequest(subtask_id="deploy-7"))
     assert resp.success is True
     assert resp.folded_count == 3
-    assert resp.item.id == "folded-deploy-7"
+    assert resp.item.id.startswith("folded-")
 
 
 def test_grpc_fold_unknown_subtask(server):

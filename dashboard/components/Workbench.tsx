@@ -3,7 +3,33 @@
 import { AlertTriangle, Ban, Coins, Scale, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { pluralize, truncate } from "@/lib/format";
-import type { Assembly } from "@/lib/types";
+import type { Assembly, ExclusionKind } from "@/lib/types";
+
+/**
+ * The three reasons an item can miss the prompt, worst-understood first.
+ *
+ * Collapsing them into one "excluded" list hides the only thing that makes the
+ * list actionable: a policy refusal is a boundary, a relevance drop is the
+ * ranker's judgement, and a budget drop is just arithmetic. Each is fixed a
+ * different way.
+ */
+const EXCLUSION_GROUPS: { kind: ExclusionKind; title: string; note: string }[] = [
+  {
+    kind: "policy",
+    title: "Refused by policy",
+    note: "This identity may not receive them, so their content is not shown here.",
+  },
+  {
+    kind: "relevance",
+    title: "Below the relevance floor",
+    note: "The ranker found no evidence these match the task. Widening the budget will not admit them.",
+  },
+  {
+    kind: "budget",
+    title: "Out of budget",
+    note: "Relevant enough to admit, but the budget was already spent.",
+  },
+];
 
 /**
  * Run a task through the governor and show the whole decision.
@@ -26,8 +52,6 @@ export function Workbench({
   const [task, setTask] = useState("");
   const [budget, setBudget] = useState(400);
 
-  const budgetExcluded = assembly?.excluded_items.filter((item) => item.kind === "budget") ?? [];
-  const policyExcluded = assembly?.excluded_items.filter((item) => item.kind === "policy") ?? [];
   const used = assembly?.tokens_used ?? 0;
   const cap = assembly?.budget || budget;
 
@@ -139,52 +163,42 @@ export function Workbench({
             <div>
               <h3>Excluded</h3>
               {assembly.excluded_items.length === 0 ? (
-                <p className="empty">Everything visible fit inside the budget.</p>
+                <p className="empty">Nothing was dropped: everything visible was relevant and fit.</p>
               ) : null}
 
-              {policyExcluded.length > 0 ? (
-                <div className="excluded-group">
-                  <h4>
-                    Policy · {pluralize(policyExcluded.length, "item")}
-                  </h4>
-                  <ul className="assembly-list">
-                    {policyExcluded.map((item) => (
-                      <li key={item.id}>
-                        <button type="button" onClick={() => onPick(item.id)}>
-                          <span className="assembly-body">
-                            <span className="item-meta">
-                              <code>{item.id}</code>
-                              <span className="pill pill-quiet">{item.scope}</span>
+              {EXCLUSION_GROUPS.map((group) => {
+                const rows = assembly.excluded_items.filter((item) => item.kind === group.kind);
+                if (rows.length === 0) return null;
+                return (
+                  <div className="excluded-group" key={group.kind}>
+                    <h4>
+                      {group.title} · {pluralize(rows.length, "item")}
+                    </h4>
+                    <p className="group-note">{group.note}</p>
+                    <ul className="assembly-list">
+                      {rows.map((item) => (
+                        <li key={item.id}>
+                          <button type="button" onClick={() => onPick(item.id)}>
+                            <span className="assembly-body">
+                              <span className="item-meta">
+                                <code>{item.id}</code>
+                                <span className="pill pill-quiet">
+                                  {group.kind === "policy" ? item.scope : `${item.tokens} tok`}
+                                </span>
+                              </span>
+                              {item.content ? <p>{truncate(item.content, 110)}</p> : null}
+                              {/* "Exceeded token budget" only repeats the heading. */}
+                              {group.kind === "budget" ? null : (
+                                <p className="reason">{item.reason}</p>
+                              )}
                             </span>
-                            <p className="reason">{item.reason}</p>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {budgetExcluded.length > 0 ? (
-                <div className="excluded-group">
-                  <h4>Budget · {pluralize(budgetExcluded.length, "item")}</h4>
-                  <ul className="assembly-list">
-                    {budgetExcluded.map((item) => (
-                      <li key={item.id}>
-                        <button type="button" onClick={() => onPick(item.id)}>
-                          <span className="assembly-body">
-                            <span className="item-meta">
-                              <code>{item.id}</code>
-                              <span className="pill pill-quiet">{item.tokens} tok</span>
-                            </span>
-                            <p>{truncate(item.content, 100)}</p>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

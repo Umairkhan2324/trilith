@@ -40,6 +40,11 @@ class Principal:
     session_id: str = ""
     # v0.1 compatibility only. Set when the caller passed a bare scope name.
     legacy_scope: str = ""
+    capabilities: tuple[str, ...] = ()
+    authenticated: bool = False
+
+    def can(self, capability: str) -> bool:
+        return capability in self.capabilities
 
     def __post_init__(self):
         object.__setattr__(self, "tenant_id", normalize_tenant(self.tenant_id))

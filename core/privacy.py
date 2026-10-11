@@ -99,7 +99,9 @@ class PolicyEngine:
 
         if scope_name == "SESSION":
             if item.session_id:
-                if item.session_id == principal.session_id:
+                if item.session_id == principal.session_id and (
+                    not item.owner_id or item.owner_id == principal.owner_id
+                ):
                     return True, ""
                 return False, (
                     f"Session mismatch: item belongs to session '{item.session_id}', "
@@ -111,6 +113,8 @@ class PolicyEngine:
 
     def _unowned(self, scope_name: str, principal: Principal) -> Tuple[bool, str]:
         """Decide an item that carries a narrowing scope but no identity to narrow by."""
+        if principal.authenticated:
+            return False, "Legacy item lacks bound scope identity"
         if principal.owner_id or principal.session_id:
             return True, ""
         # Anonymous caller: fall back to v0.1 scope-name matching.

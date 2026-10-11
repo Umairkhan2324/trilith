@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
@@ -42,9 +43,30 @@ class StoredItem:
 class SQLiteBackend:
     def __init__(self, db_path: str = ":memory:"):
         self.db_path = db_path
+        self._transaction_depth = 0
         # check_same_thread=False: REST + gRPC share one connection via ThreadSafeBackend
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA secure_delete = ON")
+        self._conn.execute("PRAGMA recursive_triggers = ON")
         self._init_db()
+
+    def _commit(self):
+        if not self._transaction_depth:
+            self._conn.commit()
+
+    @contextmanager
+    def transaction(self):
+        self._conn.execute("SAVEPOINT trilith_operation")
+        self._transaction_depth += 1
+        try:
+            yield
+            self._conn.execute("RELEASE SAVEPOINT trilith_operation")
+        except BaseException:
+            self._conn.execute("ROLLBACK TO SAVEPOINT trilith_operation")
+            self._conn.execute("RELEASE SAVEPOINT trilith_operation")
+            raise
+        finally:
+            self._transaction_depth -= 1
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -72,19 +94,30 @@ class SQLiteBackend:
             )
         """)
         self._migrate()
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS derived_sources (
+            tenant_id TEXT NOT NULL, source_id TEXT NOT NULL, summary_id TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, source_id, summary_id))""")
+        self._conn.execute(
+            """CREATE TRIGGER IF NOT EXISTS erase_derived AFTER DELETE ON context_items
+            BEGIN
+                DELETE FROM context_items WHERE tenant_id = OLD.tenant_id AND id IN
+                    (SELECT summary_id FROM derived_sources WHERE tenant_id = OLD.tenant_id AND source_id = OLD.id);
+                DELETE FROM derived_sources WHERE tenant_id = OLD.tenant_id AND
+                    (source_id = OLD.id OR summary_id = OLD.id);
+            END"""
+        )
         # Tenant leads every index: it is the first predicate of every query.
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tenant_tier_scope "
             "ON context_items(tenant_id, tier, scope)"
         )
         self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tenant_subtask "
-            "ON context_items(tenant_id, subtask_id)"
+            "CREATE INDEX IF NOT EXISTS idx_tenant_subtask ON context_items(tenant_id, subtask_id)"
         )
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_expires ON context_items(expires_at_sec)"
         )
-        self._conn.commit()
+        self._commit()
 
     def _migrate(self):
         """Bring a pre-multi-tenancy database up to the current schema.
@@ -104,12 +137,30 @@ class SQLiteBackend:
 
         # Backfill: NULL/'' tenant is meaningless — everything lands in 'default'.
         self._conn.execute(
-            "UPDATE context_items SET tenant_id = ? " "WHERE tenant_id IS NULL OR tenant_id = ''",
+            "UPDATE context_items SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = ''",
             (DEFAULT_TENANT,),
         )
         self._conn.execute("UPDATE context_items SET owner_id = '' WHERE owner_id IS NULL")
         self._conn.execute("UPDATE context_items SET session_id = '' WHERE session_id IS NULL")
-        self._conn.commit()
+        # SQLite cannot alter a primary key. Rebuild transactionally, retaining
+        # every column (including subtask metadata) and recreating indexes below.
+        info = self._conn.execute("PRAGMA table_info(context_items)").fetchall()
+        primary = [r[1] for r in sorted(info, key=lambda r: r[5]) if r[5]]
+        if primary != ["tenant_id", "id"]:
+            columns = ", ".join(r[1] for r in info)
+            definitions = ", ".join(
+                f"{r[1]} {r[2]}" + (" NOT NULL" if r[1] in ("tenant_id", "id") else "")
+                for r in info
+            )
+            self._conn.execute(
+                f"CREATE TABLE context_items_v2 ({definitions}, PRIMARY KEY (tenant_id, id))"
+            )
+            self._conn.execute(
+                f"INSERT INTO context_items_v2 ({columns}) SELECT {columns} FROM context_items"
+            )
+            self._conn.execute("DROP TABLE context_items")
+            self._conn.execute("ALTER TABLE context_items_v2 RENAME TO context_items")
+        self._commit()
         return added
 
     def save(self, item: ContextItem, subtask_id: Optional[str] = None) -> bool:
@@ -147,15 +198,14 @@ class SQLiteBackend:
                 item.session_id or "",
             ),
         )
-        self._conn.commit()
+        self._commit()
         return True
 
     def get(self, item_id: str, tenant_id: Optional[str] = None) -> Optional[ContextItem]:
         query_str = f"SELECT {_SELECT_COLS} FROM context_items WHERE id = ?"
         params: list = [item_id]
-        if tenant_id is not None:
-            query_str += " AND tenant_id = ?"
-            params.append(normalize_tenant(tenant_id))
+        query_str += " AND tenant_id = ?"
+        params.append(normalize_tenant(tenant_id))
 
         cursor = self._conn.cursor()
         cursor.execute(query_str, params)
@@ -213,6 +263,17 @@ class SQLiteBackend:
         rows = cursor.fetchall()
         return [self._row_to_item(row) for row in rows]
 
+    def lineage(self, item_id: str, tenant_id: str) -> set[str]:
+        """Transitive tenant-local source closure, including the item itself."""
+        rows = self._conn.execute(
+            """WITH RECURSIVE ancestors(id) AS (
+                SELECT ? UNION SELECT d.source_id FROM derived_sources d
+                JOIN ancestors a ON d.summary_id = a.id WHERE d.tenant_id = ?
+            ) SELECT id FROM ancestors""",
+            (item_id, normalize_tenant(tenant_id)),
+        ).fetchall()
+        return {row[0] for row in rows}
+
     def count(
         self, tier: Tier, tenant_id: Optional[str] = None, include_global: bool = False
     ) -> int:
@@ -233,9 +294,8 @@ class SQLiteBackend:
         """One row, including the columns `ContextItem` cannot carry."""
         query_str = f"SELECT {_SELECT_COLS}, subtask_id FROM context_items WHERE id = ?"
         params: list = [item_id]
-        if tenant_id is not None:
-            query_str += " AND tenant_id = ?"
-            params.append(normalize_tenant(tenant_id))
+        query_str += " AND tenant_id = ?"
+        params.append(normalize_tenant(tenant_id))
 
         cursor = self._conn.cursor()
         cursor.execute(query_str, params)
@@ -344,12 +404,11 @@ class SQLiteBackend:
     def delete(self, item_id: str, tenant_id: Optional[str] = None) -> bool:
         query_str = "DELETE FROM context_items WHERE id = ?"
         params: list = [item_id]
-        if tenant_id is not None:
-            query_str += " AND tenant_id = ?"
-            params.append(normalize_tenant(tenant_id))
+        query_str += " AND tenant_id = ?"
+        params.append(normalize_tenant(tenant_id))
         cursor = self._conn.cursor()
         cursor.execute(query_str, params)
-        self._conn.commit()
+        self._commit()
         return cursor.rowcount > 0
 
     def delete_by_scope(
@@ -377,7 +436,7 @@ class SQLiteBackend:
 
         cursor = self._conn.cursor()
         cursor.execute(query_str, params)
-        self._conn.commit()
+        self._commit()
         return cursor.rowcount
 
     def delete_tenant(self, tenant_id: str) -> int:
@@ -387,7 +446,7 @@ class SQLiteBackend:
             "DELETE FROM context_items WHERE tenant_id = ?",
             (normalize_tenant(tenant_id),),
         )
-        self._conn.commit()
+        self._commit()
         return cursor.rowcount
 
     def purge_expired(self, now: Optional[float] = None, tenant_id: Optional[str] = None) -> int:
@@ -398,7 +457,7 @@ class SQLiteBackend:
         """
         cutoff = int(now if now is not None else time.time())
         query_str = (
-            "DELETE FROM context_items " "WHERE expires_at_sec IS NOT NULL AND expires_at_sec <= ?"
+            "DELETE FROM context_items WHERE expires_at_sec IS NOT NULL AND expires_at_sec <= ?"
         )
         params: list = [cutoff]
         if tenant_id is not None:
@@ -407,7 +466,7 @@ class SQLiteBackend:
 
         cursor = self._conn.cursor()
         cursor.execute(query_str, params)
-        self._conn.commit()
+        self._commit()
         return cursor.rowcount
 
     def list_tenants(self) -> List[str]:

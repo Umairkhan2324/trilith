@@ -1069,14 +1069,21 @@ button:disabled {
 }
 
 .excluded-group {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 .excluded-group h4 {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+  opacity: 0.5;
+}
+.group-note {
+  margin: 0 0 9px;
+  max-width: 52ch;
+  font-size: 11px;
+  line-height: 1.5;
   opacity: 0.4;
 }
 

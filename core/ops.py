@@ -7,11 +7,13 @@ to an operator editing a row in the browser.
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import List, Optional, Tuple
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from core.identity import Principal
+from core.privacy import PolicyEngine
 from core.proto.trilith_pb2 import (
     AssembledContext,
     ContextItem,
@@ -21,6 +23,15 @@ from core.proto.trilith_pb2 import (
     WriteAck,
 )
 from core.runtime import TrilithRuntime
+
+
+def atomic_operation(function):
+    @wraps(function)
+    def wrapped(rt, *args, **kwargs):
+        with rt.backend.transaction():
+            return function(rt, *args, **kwargs)
+
+    return wrapped
 
 
 def ensure_created_at(item: ContextItem) -> None:
@@ -43,6 +54,29 @@ def store_for(rt: TrilithRuntime, tier: Tier):
     }.get(tier)
 
 
+def write_denial(rt, item, principal):
+    if principal is None:
+        return ""  # Embedded callers are trusted; network gateways always bind a principal.
+    existing = rt.backend.get(item.id, tenant_id=principal.tenant_id)
+    if (
+        item.scope == Scope.GLOBAL or (existing and existing.scope == Scope.GLOBAL)
+    ) and not principal.can("publish_global"):
+        return "publish_global capability required"
+    if not principal.can("tenant_admin"):
+        for candidate in (existing, item):
+            if (
+                candidate is not None
+                and not PolicyEngine()._check_visibility(candidate, principal)[0]
+            ):
+                return "Item is outside principal scope"
+        if item.scope == Scope.USER and not item.owner_id:
+            return "USER requires owner_id"
+        if item.scope == Scope.SESSION and not item.session_id:
+            return "SESSION requires session_id"
+    return ""
+
+
+@atomic_operation
 def write_item(
     rt: TrilithRuntime,
     item: ContextItem,
@@ -62,10 +96,16 @@ def write_item(
     if principal is not None:
         principal.stamp(item)
 
+    denial = write_denial(rt, item, principal)
+    if denial:
+        rt.audit.record(principal, "write", "denied", reason=denial)
+        return WriteAck(success=False, message=denial)
+
     store = store_for(rt, item.tier)
     if store is None:
         return WriteAck(success=False, message="Invalid or unspecified tier")
     store.write(item, subtask_id=subtask_id)
+    rt.audit.record(principal, "write", "allowed", item_id=item.id)
 
     rt.events.record(
         "write",
@@ -80,6 +120,7 @@ def write_item(
     return WriteAck(success=True, message=f"Wrote {item.id}")
 
 
+@atomic_operation
 def update_item(
     rt: TrilithRuntime,
     item: ContextItem,
@@ -99,10 +140,16 @@ def update_item(
     if principal is not None:
         item.tenant_id = principal.tenant_id
 
+    denial = write_denial(rt, item, principal)
+    if denial:
+        rt.audit.record(principal, "write", "denied", reason=denial)
+        return WriteAck(success=False, message=denial)
+
     store = store_for(rt, item.tier)
     if store is None:
         return WriteAck(success=False, message="Invalid or unspecified tier")
     store.write(item, subtask_id=subtask_id)
+    rt.audit.record(principal, "write", "allowed", item_id=item.id)
 
     rt.events.record(
         "update",
@@ -117,6 +164,7 @@ def update_item(
     return WriteAck(success=True, message=f"Updated {item.id}")
 
 
+@atomic_operation
 def delete_item(
     rt: TrilithRuntime,
     item_id: str,
@@ -124,6 +172,9 @@ def delete_item(
 ) -> bool:
     """Physically remove one item, confined to the principal's tenant."""
     tenant = principal.tenant_id if principal else None
+    existing = rt.backend.get(item_id, tenant_id=tenant)
+    if existing and write_denial(rt, existing, principal):
+        return False
     deleted = rt.backend.delete(item_id, tenant_id=tenant)
     if deleted:
         rt.events.record("delete", principal, f"deleted {item_id}", id=item_id)
@@ -147,6 +198,19 @@ def query_items(
         scope=scope,
         principal=principal,
     )
+    if principal is not None:
+        items, _ = PolicyEngine().filter(items, principal)
+    if filter_text:
+        ranked = rt.governor.rank(items, filter_text, budget_tokens)
+        items = [item for item, score in ranked if score > rt.governor.min_score]
+    if budget_tokens > 0:
+        selected, spent = [], 0
+        for item in items:
+            cost = rt.governor.estimate_tokens(item)
+            if spent + cost <= budget_tokens:
+                selected.append(item)
+                spent += cost
+        items = selected
     return QueryResponse(items=items)
 
 
@@ -162,6 +226,12 @@ def assemble_context(
     watch — it is where the budget is spent and where items are dropped.
     """
     assembled = rt.governor.assemble(task=task, budget=budget, principal=principal)
+    for item in assembled.items:
+        rt.audit.record(principal, "assemble", "included", item_id=item.id, budget=budget)
+    for excluded in assembled.excluded_items:
+        rt.audit.record(
+            principal, "assemble", "excluded", item_id=excluded.item.id, reason=excluded.reason
+        )
     rt.events.record(
         "assemble",
         principal,
@@ -176,15 +246,28 @@ def assemble_context(
     return assembled
 
 
+@atomic_operation
 def forget_scope(
     rt: TrilithRuntime,
     scope: str,
     principal: Optional[Principal] = None,
 ) -> int:
+    if principal and not principal.can("tenant_admin"):
+        identity = principal.owner_id if scope.upper() == "USER" else principal.session_id
+        if scope.upper() not in ("USER", "SESSION") or not identity:
+            raise PermissionError("Scoped identity or tenant_admin capability required")
+    if scope.upper() == "GLOBAL" and principal and not principal.can("publish_global"):
+        raise PermissionError("publish_global capability required")
     count = rt.episodic.forget(
         scope=scope,
         notify_stores=[rt.semantic, rt.procedural],
         principal=principal,
+    )
+    if principal:
+        rt.audit.erase(principal, scope)
+    rt.events.clear()
+    rt.audit.record(
+        Principal(principal.tenant_id) if principal else None, "forget", "completed", count=count
     )
     rt.events.record(
         "forget",
@@ -196,6 +279,7 @@ def forget_scope(
     return count
 
 
+@atomic_operation
 def fold_subtask(
     rt: TrilithRuntime,
     subtask_id: str,
@@ -208,6 +292,14 @@ def fold_subtask(
     """
     tenant = principal.tenant_id if principal else None
     before = rt.backend.query(Tier.PROCEDURAL, subtask_id=subtask_id, tenant_id=tenant)
+    if principal:
+        before = [
+            i
+            for i in before
+            if i.owner_id == principal.owner_id
+            and i.session_id == principal.session_id
+            and PolicyEngine().explain(i, principal)[0]
+        ]
     if not before:
         return None, 0
     summary = rt.procedural.fold(subtask_id, principal=principal)

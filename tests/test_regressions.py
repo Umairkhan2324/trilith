@@ -48,7 +48,11 @@ def test_assemble_no_longer_raises_on_broad_scopes(rt, requester_scope):
 
 
 def test_assemble_with_global_scope_returns_global_items(rt):
-    write_item(rt, make_item("g", scope=Scope.GLOBAL, content="shared fact"), principal=Principal())
+    write_item(
+        rt,
+        make_item("g", scope=Scope.GLOBAL, content="shared fact"),
+        principal=Principal(capabilities=("publish_global",)),
+    )
     result = rt.governor.assemble("shared fact", budget=200, requester_scope="GLOBAL")
     assert [i.id for i in result.items] == ["g"]
 
@@ -110,15 +114,17 @@ def test_fold_is_available_through_the_shared_ops_layer(rt):
     summary, count = fold_subtask(rt, "deploy-1", principal=p)
 
     assert count == 3
-    assert summary.id == "folded-deploy-1"
+    assert summary.id.startswith("folded-")
     assert all(f"did thing {n}" in summary.content for n in (1, 2, 3))
 
     remaining = rt.backend.query(Tier.PROCEDURAL, tenant_id="acme")
-    assert [i.id for i in remaining] == ["folded-deploy-1"]
+    assert {i.id for i in remaining} == {summary.id, "step-1", "step-2", "step-3"}
 
 
 def test_fold_on_unknown_subtask_reports_nothing_folded(rt):
-    summary, count = fold_subtask(rt, "does-not-exist", principal=Principal())
+    summary, count = fold_subtask(
+        rt, "does-not-exist", principal=Principal(capabilities=("publish_global",))
+    )
     assert summary is None and count == 0
 
 

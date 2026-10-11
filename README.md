@@ -11,7 +11,7 @@ Open-source context management layer for AI agents — sits between your agent a
 <br/>
 
 <!-- Badges / tags -->
-[![Version](https://img.shields.io/badge/version-v0.2.0-3DDC97?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/Umairkhan2324/trilith)
+[![Version](https://img.shields.io/badge/version-v0.3.0-3DDC97?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/Umairkhan2324/trilith)
 [![Status](https://img.shields.io/badge/status-BETA-f59e0b?style=for-the-badge)](https://github.com/Umairkhan2324/trilith)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
@@ -32,6 +32,23 @@ Open-source context management layer for AI agents — sits between your agent a
 
 ---
 
+## Research status (unreleased hardening)
+
+Trilith is an experimental research system. This working tree adds tenant-qualified
+keys, credential-bound owner/session identity, explicit admin and GLOBAL publisher
+capabilities, Unicode BM25 retrieval, coverage-per-cost packing, source-preserving
+folding and durable erasure-aware decision records.
+
+Read the **[upgrade guide](docs/upgrade-research.md)** before running an existing
+client. **[Research specification](docs/research.md)** documents prior work, the
+TPCC baseline and limitations. The newer **[LCWP algorithm](docs/algorithm.md)**
+models complete evidence chains and shared-source invalidation; it has synthetic
+oracle comparisons and explicit negative results. **[Reproducible benchmarks](benchmarks/README.md)**
+currently show a tie with BM25 on synthetic fixtures, not a novel or superior
+context-management technique. Language-agnostic transport does not imply universal
+natural-language understanding. The broader storage/control-plane architecture
+remains a roadmap.
+
 ## Why Trilith?
 
 Agents drown in context. Trilith **governs** what enters the prompt:
@@ -42,7 +59,7 @@ Agents drown in context. Trilith **governs** what enters the prompt:
 | **Procedural** | Task steps (`fold` into summaries) |
 | **Episodic** | Scoped events + cascading `forget` |
 
-Policy → rank → fill budget → return **included + excluded with reasons**. No silent drops.
+Policy → rank → drop the irrelevant → fill budget → return **included + excluded with reasons**. Policy-denied records are not exposed in response diagnostics; the durable decision log records policy outcomes.
 
 ---
 
@@ -73,7 +90,7 @@ Full guide → **[docs/deployment.md](docs/deployment.md)**
 ## Expect / don’t expect
 
 **Expect**
-- Local SQLite + TF-IDF ranking (zero external AI dependency)
+- Local SQLite + Unicode BM25 retrieval and coverage-per-cost selection (zero external AI dependency)
 - REST (`:8080`) + gRPC (`:50051`) + MCP
 - **Real multi-tenancy** — tenant/user/session identity, enforced in the query layer
 - **Optional API-key auth** — off by default, one command to turn on, no restart
@@ -82,7 +99,7 @@ Full guide → **[docs/deployment.md](docs/deployment.md)**
 - Physical `forget(scope)` across tiers, confined to the caller's tenant
 
 **Don’t expect (yet)**
-- End-user IAM — Trilith authenticates *your service*; your app maps its own users to `owner_id`
+- End-user IAM — Trilith authenticates *your service*; provision credentials bound to each owner/session
 - TLS, rate limiting, or per-tenant quotas — put a reverse proxy in front
 - Vector DB / Postgres backends
 - PyPI / npm packages yet — **install from this GitHub repo** (see below)
@@ -113,7 +130,7 @@ There are several strong memory solutions for AI agents already. Here's an hones
 | **Multi-tenancy** | ✅ tenant / user / session identity, enforced in SQL, with key-bound tenants | Hosted tiers isolate by project/user | Hosted tiers isolate by user/session | Namespaces inside your own LangGraph store |
 | **Self-hosted, no LLM key required** | ✅ SQLite + TF-IDF ranking, works fully offline | OSS tier yes, graph/Pro features gated behind $249/mo | Free tier limited; deeper temporal/graph features are paid | ✅ zero extra infra inside LangGraph |
 | **Pricing** | Free, Apache 2.0 | Free tier + Pro from $249/mo | Free tier (limited credits) + plans from $25/mo | Free |
-| **Maturity** | v0.2, early beta | Tens of thousands of stars, production track record | Strong production track record, widely deployed | Newer (2025), backed by LangChain |
+| **Maturity** | v0.3, early beta | Tens of thousands of stars, production track record | Strong production track record, widely deployed | Newer (2025), backed by LangChain |
 
 ### Why Trilith stands out
 
@@ -124,7 +141,7 @@ There are several strong memory solutions for AI agents already. Here's an hones
 
 ### Where the others currently win — and I'd rather say this than have you find out the hard way
 
-- **Maturity and battle-testing.** Mem0 and Zep have years of production usage and tens of thousands of GitHub stars between them. Trilith is v0.2 beta — use it for prototyping and internal tools right now, not for something that can't fail.
+- **Maturity and battle-testing.** Mem0 and Zep have years of production usage and tens of thousands of GitHub stars between them. Trilith is v0.3 beta — use it for prototyping and internal tools right now, not for something that can't fail.
 - **Temporal/graph reasoning.** If you need relationship modeling or time-aware fact resolution across a knowledge graph, Zep is purpose-built for that today. Trilith doesn't do this yet.
 - **Hosted, zero-ops option.** Mem0 and Zep offer managed cloud tiers. Trilith is self-hosted only right now — that's a feature for some teams and a dealbreaker for others.
 - **Identity infrastructure.** Trilith's tenancy is real and enforced, but it authenticates services, not end users. Hosted competitors hand you user management; here your app owns that and passes Trilith an `owner_id`.
@@ -253,6 +270,7 @@ Trilith = memory + governance — not an agent framework, not an LLM.
 - [**Deployment & multi-tenancy**](docs/deployment.md) — tenants, API keys, Docker, migrating from v0.1
 - [**Adapters (plug-and-play)**](docs/adapters.md) — LangChain, OpenAI Agents, Claude, TypeScript
 - [Architecture](docs/architecture.md)
+- [**Changelog**](CHANGELOG.md) — what changed in v0.3.0, and what to do before upgrading
 - Demos: [`examples/in_process_usage.py`](examples/in_process_usage.py), [`examples/multi_tenant_usage.py`](examples/multi_tenant_usage.py), [`examples/adapter_snippets.py`](examples/adapter_snippets.py)
 
 ## License
@@ -263,6 +281,6 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 <div align="center">
 
-**TRILITH** · context engineering · v0.2.0 beta
+**TRILITH** · context engineering · v0.3.0 beta
 
 </div>

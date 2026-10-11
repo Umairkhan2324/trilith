@@ -49,3 +49,6 @@ npm-debug.log*
 
 # Proto local junk
 *.pb.go
+
+.python/
+.python.zip

@@ -1,8 +1,7 @@
 """MCP server exposing Trilith's context operations as tools.
 
-An MCP host is a single trusted process, so this adapter does not use API
-keys. Tenancy is still real: every tool takes a `tenant_id`, defaulting to
-`default`, so one host can serve several isolated workspaces from one database.
+Identity comes from host environment, never model-controlled tool arguments.
+Use one stdio process per tenant/owner/session. No admin or publisher capability.
 """
 
 import json
@@ -28,8 +27,13 @@ rt = build_runtime(DB_FILE)
 mcp = FastMCP("Trilith")
 
 
-def _principal(tenant_id: str = "", owner_id: str = "", session_id: str = "") -> Principal:
-    return Principal(tenant_id=tenant_id, owner_id=owner_id, session_id=session_id)
+def _principal() -> Principal:
+    return Principal(
+        tenant_id=os.environ.get("TRILITH_TENANT_ID", "default"),
+        owner_id=os.environ.get("TRILITH_OWNER_ID", ""),
+        session_id=os.environ.get("TRILITH_SESSION_ID", ""),
+        authenticated=True,
+    )
 
 
 @mcp.tool()
@@ -39,9 +43,6 @@ def write_context(
     content: str,
     scope: str,
     provenance: str = "",
-    tenant_id: str = "default",
-    owner_id: str = "",
-    session_id: str = "",
 ) -> str:
     """Writes a context item into Trilith.
 
@@ -51,9 +52,6 @@ def write_context(
         content: The text content to store
         scope: Visibility within the tenant — 'USER', 'TENANT', 'SESSION', or 'GLOBAL'
         provenance: Origin description of the item
-        tenant_id: Isolation boundary this item belongs to
-        owner_id: User this item belongs to (required for USER scope to isolate)
-        session_id: Session this item belongs to (required for SESSION scope)
     """
     try:
         tier_enum = Tier.Value(tier.upper())
@@ -73,11 +71,11 @@ def write_context(
         content=content,
         provenance=provenance,
         created_at=created,
-        owner_id=owner_id,
-        session_id=session_id,
+        owner_id=_principal().owner_id,
+        session_id=_principal().session_id,
     )
 
-    ack = write_item(rt, item, principal=_principal(tenant_id, owner_id, session_id))
+    ack = write_item(rt, item, principal=_principal())
     if not ack.success:
         return f"Error: {ack.message}"
     return f"Success: Wrote item {id} to {tier.upper()} tier in tenant '{item.tenant_id}'."
@@ -87,9 +85,6 @@ def write_context(
 def assemble_context(
     task: str,
     budget: int = 200,
-    tenant_id: str = "default",
-    owner_id: str = "",
-    session_id: str = "",
 ) -> str:
     """Retrieves and assembles context for a task within a token budget.
 
@@ -98,14 +93,9 @@ def assemble_context(
     Args:
         task: Description of the task/query
         budget: Maximum tokens allowed (estimate)
-        tenant_id: Isolation boundary to read from
-        owner_id: Unlocks USER-scoped items belonging to this owner
-        session_id: Unlocks SESSION-scoped items belonging to this session
     """
     try:
-        assembled = rt.governor.assemble(
-            task, budget, principal=_principal(tenant_id, owner_id, session_id)
-        )
+        assembled = rt.governor.assemble(task, budget, principal=_principal())
     except Exception as e:
         return f"Assembly error: {str(e)}"
 
@@ -126,7 +116,6 @@ def assemble_context(
 @mcp.tool()
 def fold_procedural(
     subtask_id: str,
-    tenant_id: str = "default",
 ) -> str:
     """Collapses all procedural steps of a sub-task into one summary item.
 
@@ -135,38 +124,31 @@ def fold_procedural(
 
     Args:
         subtask_id: The sub-task whose steps should be folded
-        tenant_id: Isolation boundary the sub-task belongs to
     """
     try:
-        summary, count = fold_subtask(rt, subtask_id, principal=_principal(tenant_id))
+        summary, count = fold_subtask(rt, subtask_id, principal=_principal())
     except Exception as e:
         return f"Fold error: {str(e)}"
 
     if summary is None:
-        return f"No procedural steps found for subtask '{subtask_id}' in tenant '{tenant_id}'."
+        return f"No procedural steps found for subtask '{subtask_id}' in tenant '{_principal().tenant_id}'."
     return f"Folded {count} steps into '{summary.id}'."
 
 
 @mcp.tool()
 def forget(
     scope: str,
-    tenant_id: str = "default",
-    owner_id: str = "",
-    session_id: str = "",
 ) -> str:
     """Irrevocably purges memory of the given scope across all three tiers.
 
     Args:
         scope: The scope to purge — 'USER', 'TENANT', or 'SESSION'
-        tenant_id: Isolation boundary to purge within
-        owner_id: With scope USER, limits the purge to this owner
-        session_id: With scope SESSION, limits the purge to this session
     """
     try:
-        count = forget_scope(rt, scope, principal=_principal(tenant_id, owner_id, session_id))
+        count = forget_scope(rt, scope, principal=_principal())
         return (
             f"Purged {count} episodic items of scope '{scope}' in tenant "
-            f"'{tenant_id}', cascading to other tiers."
+            f"'{_principal().tenant_id}', cascading to other tiers."
         )
     except Exception as e:
         return f"Forget error: {str(e)}"
@@ -174,20 +156,19 @@ def forget(
 
 # Kept under its v0.1 name so existing MCP host configs keep working.
 @mcp.tool()
-def forget_scope_tool(scope: str, tenant_id: str = "default") -> str:
+def forget_scope_tool(scope: str) -> str:
     """Deprecated alias for `forget`. Purges a scope across all tiers."""
-    return forget(scope=scope, tenant_id=tenant_id)
+    return forget(scope=scope)
 
 
 @mcp.tool()
-def purge_expired_items(tenant_id: str = "default") -> str:
+def purge_expired_items() -> str:
     """Physically deletes items whose TTL has passed.
 
     Args:
-        tenant_id: Isolation boundary to reap within
     """
-    deleted = purge_expired(rt, principal=_principal(tenant_id))
-    return f"Deleted {deleted} expired item(s) from tenant '{tenant_id}'."
+    deleted = purge_expired(rt, principal=_principal())
+    return f"Deleted {deleted} expired item(s) from tenant '{_principal().tenant_id}'."
 
 
 if __name__ == "__main__":

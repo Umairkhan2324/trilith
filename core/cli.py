@@ -7,11 +7,17 @@ import sys
 import threading
 from datetime import datetime, timezone
 
+from core.runtime import parse_min_score
+
 
 def _runtime(args):
     from core.runtime import build_runtime
 
-    return build_runtime(args.db, require_auth=getattr(args, "require_auth", None))
+    return build_runtime(
+        args.db,
+        require_auth=getattr(args, "require_auth", None),
+        min_score=getattr(args, "min_score", None),
+    )
 
 
 def cmd_serve(args):
@@ -37,6 +43,11 @@ def cmd_serve(args):
     print(f"[trilith serve] db={rt.db_path}")
     print(f"[trilith serve] REST  http://{args.host}:{args.port}")
     print(f"[trilith serve] gRPC  {args.host}:{grpc_bound}")
+    floor = rt.governor.min_score
+    print(
+        f"[trilith serve] rank  relevance floor {floor}"
+        + ("  (disabled - budget is the only gate)" if floor == float("-inf") else "")
+    )
 
     if rt.auth.enabled:
         print("[trilith serve] auth  ENABLED — send 'Authorization: Bearer tri_...'")
@@ -55,7 +66,11 @@ def cmd_serve(args):
 def cmd_key_create(args):
     rt = _runtime(args)
     raw, record = rt.keys.create(
-        tenant_id=args.tenant, owner_id=args.owner or "", name=args.name or ""
+        tenant_id=args.tenant,
+        owner_id=args.owner or "",
+        name=args.name or "",
+        session_id=args.session,
+        capabilities=tuple(args.capability),
     )
     print("API key created. This is shown once and cannot be recovered:\n")
     print(f"  {raw}\n")
@@ -135,6 +150,16 @@ def main():
     serve.add_argument("--port", type=int, default=8080, help="REST port")
     serve.add_argument("--grpc-port", type=int, default=50051, help="gRPC port")
     serve.add_argument(
+        "--min-score",
+        type=parse_min_score,
+        default=None,
+        metavar="SCORE",
+        help=(
+            "Relevance score an item must beat to be assembled "
+            "(default 0.0, or TRILITH_MIN_SCORE). Pass 'off' to admit anything that fits."
+        ),
+    )
+    serve.add_argument(
         "--require-auth",
         action="store_true",
         default=None,
@@ -148,6 +173,10 @@ def main():
     key_create = key_sub.add_parser("create", help="Mint an API key bound to a tenant")
     key_create.add_argument("--tenant", required=True, help="Tenant this key acts as")
     key_create.add_argument("--owner", default="", help="Pin the key to one owner/user id")
+    key_create.add_argument("--session", default="", help="Bind session identity")
+    key_create.add_argument(
+        "--capability", action="append", default=[], choices=["tenant_admin", "publish_global"]
+    )
     key_create.add_argument("--name", default="", help="Label for your own reference")
     _add_db_arg(key_create)
 

@@ -49,14 +49,14 @@ def test_key_can_pin_an_owner(rt):
     assert principal.owner_id == "alice"
 
 
-def test_unpinned_key_accepts_a_caller_supplied_owner(rt):
+def test_unpinned_key_cannot_claim_an_owner_or_session(rt):
     raw, _ = rt.keys.create(tenant_id="acme")
 
     principal = rt.auth.resolve(f"Bearer {raw}", owner_id="bob", session_id="s1")
     assert (principal.tenant_id, principal.owner_id, principal.session_id) == (
         "acme",
-        "bob",
-        "s1",
+        "",
+        "",
     )
 
 

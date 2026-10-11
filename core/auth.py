@@ -19,11 +19,14 @@ shared/cloud one; the binary is the same.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
 import time
 from dataclasses import dataclass
+from functools import wraps
+from threading import RLock
 from typing import List, Optional
 
 from core.identity import Principal, normalize_tenant
@@ -58,13 +61,25 @@ class ApiKeyRecord:
     name: str
     created_at: int
     revoked: bool
+    capabilities: tuple[str, ...] = ()
+    session_id: str = ""
+
+
+def synchronized(function):
+    @wraps(function)
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            return function(self, *args, **kwargs)
+
+    return wrapped
 
 
 class ApiKeyStore:
     """Persists API keys alongside context data in the same SQLite file."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, lock=None):
         self._conn = conn
+        self._lock = lock or RLock()
         self._init_db()
 
     def _init_db(self):
@@ -80,15 +95,26 @@ class ApiKeyStore:
             )
         """)
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)")
+        columns = {r[1] for r in self._conn.execute("PRAGMA table_info(api_keys)")}
+        for column, default in (("capabilities", "[]"), ("session_id", "")):
+            if column not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE api_keys ADD COLUMN {column} TEXT NOT NULL DEFAULT '{default}'"
+                )
         self._conn.commit()
 
+    @synchronized
     def create(
         self,
         tenant_id: str,
         owner_id: str = "",
         name: str = "",
+        capabilities: tuple[str, ...] = (),
+        session_id: str = "",
     ) -> tuple[str, ApiKeyRecord]:
         """Mint a key. Returns (raw_key, record) — the raw key is never stored."""
+        if set(capabilities) - {"tenant_admin", "publish_global"}:
+            raise ValueError("Unknown capability")
         raw = generate_key()
         record = ApiKeyRecord(
             fingerprint=fingerprint(raw),
@@ -97,6 +123,8 @@ class ApiKeyStore:
             name=name or "",
             created_at=int(time.time()),
             revoked=False,
+            capabilities=capabilities,
+            session_id=session_id,
         )
         self._conn.execute(
             """
@@ -114,12 +142,18 @@ class ApiKeyStore:
             ),
         )
         self._conn.commit()
+        self._conn.execute(
+            "UPDATE api_keys SET capabilities = ?, session_id = ? WHERE key_hash = ?",
+            (json.dumps(list(capabilities)), session_id, hash_key(raw)),
+        )
+        self._conn.commit()
         return raw, record
 
+    @synchronized
     def lookup(self, raw_key: str) -> Optional[ApiKeyRecord]:
         cursor = self._conn.cursor()
         cursor.execute(
-            "SELECT fingerprint, tenant_id, owner_id, name, created_at, revoked "
+            "SELECT fingerprint, tenant_id, owner_id, name, created_at, revoked, capabilities, session_id "
             "FROM api_keys WHERE key_hash = ?",
             (hash_key(raw_key),),
         )
@@ -133,12 +167,13 @@ class ApiKeyStore:
             name=row[3],
             created_at=row[4],
             revoked=bool(row[5]),
+            capabilities=tuple(json.loads(row[6])),
+            session_id=row[7],
         )
 
+    @synchronized
     def list(self, tenant_id: Optional[str] = None) -> List[ApiKeyRecord]:
-        query = (
-            "SELECT fingerprint, tenant_id, owner_id, name, created_at, revoked " "FROM api_keys"
-        )
+        query = "SELECT fingerprint, tenant_id, owner_id, name, created_at, revoked, capabilities, session_id FROM api_keys"
         params: list = []
         if tenant_id:
             query += " WHERE tenant_id = ?"
@@ -155,24 +190,29 @@ class ApiKeyStore:
                 name=r[3],
                 created_at=r[4],
                 revoked=bool(r[5]),
+                capabilities=tuple(json.loads(r[6])),
+                session_id=r[7],
             )
             for r in cursor.fetchall()
         ]
 
+    @synchronized
     def revoke(self, fingerprint_prefix: str) -> int:
         cursor = self._conn.cursor()
         cursor.execute(
-            "UPDATE api_keys SET revoked = 1 " "WHERE fingerprint LIKE ? AND revoked = 0",
+            "UPDATE api_keys SET revoked = 1 WHERE fingerprint LIKE ? AND revoked = 0",
             (f"{fingerprint_prefix}%",),
         )
         self._conn.commit()
         return cursor.rowcount
 
+    @synchronized
     def active_count(self) -> int:
         cursor = self._conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM api_keys WHERE revoked = 0")
         return int(cursor.fetchone()[0])
 
+    @synchronized
     def total_count(self) -> int:
         """Every key ever minted, revoked ones included.
 
@@ -253,6 +293,7 @@ class AuthEnforcer:
                 owner_id=owner_id,
                 session_id=session_id,
                 legacy_scope=legacy_scope,
+                capabilities=("tenant_admin",),
             )
 
         raw_key = parse_authorization(authorization)
@@ -270,7 +311,8 @@ class AuthEnforcer:
 
         return Principal(
             tenant_id=record.tenant_id,
-            owner_id=record.owner_id or owner_id,
-            session_id=session_id,
-            legacy_scope=legacy_scope,
+            owner_id=record.owner_id,
+            session_id=record.session_id,
+            capabilities=record.capabilities,
+            authenticated=True,
         )
